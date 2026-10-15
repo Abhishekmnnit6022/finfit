@@ -8,6 +8,7 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
+  Modal,
 } from "react-native";
 import { LineChart, PieChart } from "react-native-chart-kit";
 import { COLORS } from "../../../constants/theme";
@@ -459,15 +460,18 @@ const Analysis = () => {
         />
       </TouchableOpacity>
 
-      {isChatOpen && (
-        <View style={StyleSheet.absoluteFill}>
-          <ChatInterface
-            summary={summary}
-            transactions={transactions}
-            onClose={() => setIsChatOpen(false)}
-          />
-        </View>
-      )}
+      <Modal
+        visible={isChatOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setIsChatOpen(false)}
+      >
+        <ChatInterface
+          summary={summary}
+          transactions={transactions}
+          onClose={() => setIsChatOpen(false)}
+        />
+      </Modal>
     </SafeAreaView>
   );
 };

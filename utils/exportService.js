@@ -8,11 +8,11 @@ export const exportService = {
   async exportToJSON(transactions) {
     try {
       const jsonContent = JSON.stringify(transactions, null, 2);
-      const fileName = `expenses_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.json`;
+      const fileName = `FinFit_expenses_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.json`;
       const filePath = `${FileSystem.documentDirectory}${fileName}`;
       
       await FileSystem.writeAsStringAsync(filePath, jsonContent);
-      await shareFile(filePath);
+      await shareFile(filePath, 'FinFit Expenses JSON');
     } catch (error) {
       console.error('Error exporting to JSON:', error);
       throw error;
@@ -36,11 +36,11 @@ export const exportService = {
         ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
       ].join('\n');
       
-      const fileName = `expenses_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.csv`;
+      const fileName = `FinFit_expenses_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.csv`;
       const filePath = `${FileSystem.documentDirectory}${fileName}`;
       
       await FileSystem.writeAsStringAsync(filePath, csvContent);
-      await shareFile(filePath);
+      await shareFile(filePath, 'FinFit Expenses CSV');
     } catch (error) {
       console.error('Error exporting to CSV:', error);
       throw error;
@@ -56,8 +56,16 @@ export const exportService = {
         html: htmlContent,
         base64: false
       });
+
+      const fileName = `FinFit_Expense_Report.pdf`;
+      const targetFilePath = `${FileSystem.documentDirectory}${fileName}`;
+
+      await FileSystem.copyAsync({
+        from: uri,
+        to: targetFilePath,
+      });
   
-      await shareFile(uri);
+      await shareFile(targetFilePath, 'FinFit Expense Report');
     } catch (error) {
       console.error('Error exporting to PDF:', error);
       throw error;
@@ -65,11 +73,15 @@ export const exportService = {
   }
 }  
 
-const shareFile = async (filePath) => {
+const shareFile = async (filePath, dialogTitle = 'Share File') => {
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error('Sharing is not available on this platform');
   }
-  await Sharing.shareAsync(filePath);
+  await Sharing.shareAsync(filePath, {
+    mimeType: filePath.endsWith('.pdf') ? 'application/pdf' : undefined,
+    dialogTitle: dialogTitle,
+    UTI: filePath.endsWith('.pdf') ? 'com.adobe.pdf' : undefined,
+  });
 };
 
 const groupTransactionsByMonth = (transactions) => {
@@ -177,6 +189,7 @@ const generatePDFContent = async (groupedTransactions) => {
           .team-logo img { max-width: 80px; }
           .app-logo img { max-width: 150px; }
         </style>
+        <title>FinFit Expense Report</title>
       </head>
       <body>
         <div class="header">
@@ -187,7 +200,7 @@ const generatePDFContent = async (groupedTransactions) => {
             <img src="${appLogoUri}" alt="App Logo" />
           </div>
         </div>
-        <h1>Expense Report</h1>
+        <h1>FinFit Expense Report</h1>
         ${monthSections}
       </body>
     </html>

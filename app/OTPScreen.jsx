@@ -56,7 +56,7 @@ const OTPScreen = () => {
     if (isVerified) {
       try {
         await AsyncStorage.setItem('phoneNumber', phoneNumber);
-        router.replace('(drawer)');
+        router.replace('/(drawer)');
       } catch (error) {
         console.error('Error saving phone number:', error);
       }

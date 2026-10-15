@@ -72,9 +72,9 @@ export default function RootLayout() {
         setShowSplash(false);
         if (hasLaunched === null) {
           await AsyncStorage.setItem('hasLaunched', 'true');
-          router.replace('index');
+          router.replace('/');
         } else {
-          router.replace('(drawer)');
+          router.replace('/(drawer)');
         }
       });
     } catch (error) {

@@ -9,7 +9,9 @@ import {
     Platform,
     StyleSheet,
     ActivityIndicator,
+    SafeAreaView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
 import {
@@ -20,10 +22,11 @@ import { chatWithAI, getInitialAnalysis } from '../utils/aiService';
 import LottieView from 'lottie-react-native';
 
 const ChatInterface = ({ summary, transactions, onClose }) => {
+    const insets = useSafeAreaInsets();
     const [messages, setMessages] = useState([
         {
             id: '1',
-            text: "Hi! I'm your personal finance advisor from **Team Auxin.**  I'm analyzing your financial data...",
+            text: "Hi! I'm your personal finance advisor from Team Auxin. I'm analyzing your financial data...",
             isUser: false,
         },
     ]);
@@ -95,93 +98,135 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
         setIsLoading(false);
     };
 
-    const parseMessageText = (text) => {
-        const parts = text.split(/(\*\*[^*]+\*\*)/g); 
-        return parts.map((part, index) => {
-            if (part.startsWith('**') && part.endsWith('**')) {
-                return (
-                    <Text key={index} style={{ fontWeight: 'bold' }}>
-                        {part.slice(2, -2)}
-                    </Text>
-                );
-            }
-            return <Text key={index}>{part}</Text>;
-        });
+    // Comprehensive markdown cleaner that strips ALL asterisks and formats cleanly
+    const parseMessageText = (text, isUser) => {
+        if (!text) return '';
+        if (isUser) return text;
+        
+        let cleanText = text;
+        // Strip markdown headers
+        cleanText = cleanText.replace(/^#{1,6}\s+/gm, '');
+        // Strip bold+italic (***text***)
+        cleanText = cleanText.replace(/\*\*\*([^*]+)\*\*\*/g, '$1');
+        // Strip bold (**text**)
+        cleanText = cleanText.replace(/\*\*([^*]+)\*\*/g, '$1');
+        // Strip italic (*text*)
+        cleanText = cleanText.replace(/\*([^*\n]+)\*/g, '$1');
+        // Convert markdown bullets (* item or - item) into clean bullet
+        cleanText = cleanText.replace(/^(\s*)[\*\-]\s+/gm, '$1• ');
+        // Remove ANY and ALL remaining stray asterisks from the text
+        cleanText = cleanText.replace(/\*/g, '');
+        // Clean excessive line breaks
+        cleanText = cleanText.replace(/\n{3,}/g, '\n\n');
+        
+        return cleanText.trim();
     };
 
-    const renderMessage = ({ item }) => (
-        <View
-            style={[
-                styles.messageContainer,
-                item.isUser ? styles.userMessage : styles.aiMessage,
-            ]}
-        >
-            <Text style={styles.messageText}>{parseMessageText(item.text)}</Text>
-        </View>
-    );
+    const renderMessage = ({ item }) => {
+        const textContent = parseMessageText(item.text, item.isUser);
+        return (
+            <View
+                style={[
+                    styles.messageContainer,
+                    item.isUser ? styles.userMessage : styles.aiMessage,
+                ]}
+            >
+                {!item.isUser && (
+                    <View style={styles.aiAvatarRow}>
+                        <View style={styles.aiAvatar}>
+                            <Ionicons name="sparkles" size={wp('3.5%')} color={COLORS.secondary} />
+                        </View>
+                        <Text style={styles.aiLabel}>FinFit AI Advisor</Text>
+                    </View>
+                )}
+                <Text style={[
+                    styles.messageText,
+                    item.isUser ? styles.userMessageText : styles.aiMessageText,
+                ]}>
+                    {textContent}
+                </Text>
+            </View>
+        );
+    };
 
     return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.container}
-            keyboardVerticalOffset={hp('10%')} // Adjust this as needed
-        >
-            <View style={styles.header}>
-                <Text style={styles.headerText}>Financial Advisor Chat</Text>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                    <Ionicons name="close" size={wp('6%')} color={COLORS.text.primary} />
-                </TouchableOpacity>
-            </View>
-
-            <FlatList
-                ref={flatListRef}
-                data={messages}
-                renderItem={renderMessage}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.messagesList}
-                onContentSizeChange={() => flatListRef.current.scrollToEnd({ animated: true })}
-                onLayout={() => flatListRef.current.scrollToEnd({ animated: true })}
-                ListFooterComponent={
-                    isLoading ? (
-                        <View style={styles.loadingContainer}>
-                            <ActivityIndicator color={COLORS.secondary} />
-                            {/* <LottieView 
-                            source={require("../assets/animation/thinking.json")}
-                            loop
-                            style={styles.loadingAnimation}
-                            autoPlay/> */}
+        <SafeAreaView style={styles.safeArea}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                style={styles.container}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? hp('2%') : 0}
+            >
+                <View style={styles.header}>
+                    <View style={styles.headerLeft}>
+                        <View style={styles.headerIcon}>
+                            <Ionicons name="chatbubbles" size={wp('5%')} color="#FFFFFF" />
                         </View>
-                    ) : null
-                }
-            />
+                        <View>
+                            <Text style={styles.headerText}>Financial Advisor</Text>
+                            <Text style={{ fontSize: wp('2.8%'), color: COLORS.secondary }}>Powered by FinFit AI</Text>
+                        </View>
+                    </View>
+                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                        <Ionicons name="close-circle" size={wp('7%')} color={COLORS.text.secondary} />
+                    </TouchableOpacity>
+                </View>
 
-            <View style={styles.inputContainer}>
-                <TextInput
-                    style={styles.input}
-                    value={inputText}
-                    onChangeText={setInputText}
-                    placeholder="Type your message..."
-                    placeholderTextColor={COLORS.text.secondary}
-                    multiline
-                    editable={!isLoading}
+                <FlatList
+                    ref={flatListRef}
+                    data={messages}
+                    renderItem={renderMessage}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={styles.messagesList}
+                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                    onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                    ListFooterComponent={
+                        isLoading ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator color={COLORS.secondary} size="small" />
+                                <Text style={styles.loadingText}>Thinking...</Text>
+                            </View>
+                        ) : null
+                    }
                 />
-                <TouchableOpacity
-                    onPress={handleSend}
-                    style={styles.sendButton}
-                    disabled={isLoading || !inputText.trim()}
-                >
-                    <Ionicons
-                        name="send"
-                        size={wp('6%')}
-                        color={inputText.trim() && !isLoading ? COLORS.secondary : COLORS.text.secondary}
-                    />
-                </TouchableOpacity>
-            </View>
-        </KeyboardAvoidingView>
+
+                <View style={[styles.inputWrapper, { paddingBottom: Math.max(insets.bottom, hp('1.5%')) }]}>
+                    <View style={styles.inputContainer}>
+                        <TextInput
+                            style={styles.input}
+                            value={inputText}
+                            onChangeText={setInputText}
+                            placeholder="Ask about your finances..."
+                            placeholderTextColor={COLORS.text.secondary}
+                            multiline
+                            editable={!isLoading}
+                            maxLength={500}
+                        />
+                        <TouchableOpacity
+                            onPress={handleSend}
+                            style={[
+                                styles.sendButton,
+                                inputText.trim() && !isLoading && styles.sendButtonActive,
+                            ]}
+                            disabled={isLoading || !inputText.trim()}
+                        >
+                            <Ionicons
+                                name="send"
+                                size={wp('5%')}
+                                color={inputText.trim() && !isLoading ? '#fff' : COLORS.text.secondary}
+                            />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
+    safeArea: {
+        flex: 1,
+        backgroundColor: COLORS.background,
+    },
     container: {
         flex: 1,
         backgroundColor: COLORS.background,
@@ -190,9 +235,24 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: wp('4%'),
+        paddingHorizontal: wp('4%'),
+        paddingVertical: hp('1.5%'),
         borderBottomWidth: 1,
         borderBottomColor: COLORS.lightbackground,
+        backgroundColor: COLORS.background,
+    },
+    headerLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    headerIcon: {
+        width: wp('9%'),
+        height: wp('9%'),
+        borderRadius: wp('4.5%'),
+        backgroundColor: COLORS.primary,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: wp('3%'),
     },
     headerText: {
         fontSize: wp('4.5%'),
@@ -200,57 +260,113 @@ const styles = StyleSheet.create({
         color: COLORS.text.primary,
     },
     closeButton: {
-        padding: wp('2%'),
+        padding: wp('1%'),
     },
     messagesList: {
-        padding: wp('4%'),
+        paddingHorizontal: wp('4%'),
+        paddingTop: hp('1%'),
+        paddingBottom: hp('2%'),
         flexGrow: 1,
     },
     messageContainer: {
-        maxWidth: '80%',
-        marginVertical: hp('1%'),
-        padding: wp('4%'),
+        maxWidth: '85%',
+        marginVertical: hp('0.6%'),
+        padding: wp('3.5%'),
         borderRadius: wp('4%'),
     },
     userMessage: {
         alignSelf: 'flex-end',
         backgroundColor: COLORS.primary,
+        borderBottomRightRadius: wp('1%'),
     },
     aiMessage: {
         alignSelf: 'flex-start',
         backgroundColor: COLORS.lightbackground,
+        borderBottomLeftRadius: wp('1%'),
+    },
+    aiAvatarRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: hp('0.5%'),
+    },
+    aiAvatar: {
+        width: wp('5%'),
+        height: wp('5%'),
+        borderRadius: wp('2.5%'),
+        backgroundColor: 'rgba(237, 253, 154, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: wp('1.5%'),
+    },
+    aiLabel: {
+        fontSize: wp('2.8%'),
+        color: COLORS.secondary,
+        fontWeight: '600',
     },
     messageText: {
-        fontSize: wp('3.8%'),
+        fontSize: wp('3.6%'),
         color: COLORS.text.primary,
+        lineHeight: wp('5.2%'),
+    },
+    userMessageText: {
+        color: '#FFFFFF',
+    },
+    aiMessageText: {
+        color: COLORS.text.primary,
+    },
+    bulletLine: {
+        fontSize: wp('3.6%'),
+        color: COLORS.text.primary,
+        lineHeight: wp('5.2%'),
+    },
+    inputWrapper: {
+        backgroundColor: COLORS.background,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.lightbackground,
+        paddingHorizontal: wp('3%'),
+        paddingTop: hp('1%'),
     },
     inputContainer: {
         flexDirection: 'row',
-        padding: wp('4%'),
-        alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: COLORS.lightbackground,
+        alignItems: 'flex-end',
+        backgroundColor: COLORS.lightbackground,
+        borderRadius: wp('5%'),
+        paddingHorizontal: wp('3%'),
+        paddingVertical: hp('0.5%'),
     },
     input: {
         flex: 1,
-        backgroundColor: COLORS.lightbackground,
-        borderRadius: wp('4%'),
-        padding: wp('3%'),
-        marginRight: wp('2%'),
         color: COLORS.text.primary,
         fontSize: wp('3.8%'),
-        maxHeight: hp('15%'),
+        maxHeight: hp('12%'),
+        paddingVertical: hp('1%'),
     },
     sendButton: {
-        padding: wp('2%'),
+        width: wp('9%'),
+        height: wp('9%'),
+        borderRadius: wp('4.5%'),
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: wp('2%'),
+        marginBottom: hp('0.2%'),
+    },
+    sendButtonActive: {
+        backgroundColor: COLORS.primary,
     },
     loadingContainer: {
-        padding: wp('2%'),
+        flexDirection: 'row',
         alignItems: 'center',
+        padding: wp('3%'),
+        alignSelf: 'flex-start',
     },
-    loadingAnimation:{
-        height:wp(20),
-        width:wp(20)
+    loadingText: {
+        color: COLORS.text.secondary,
+        fontSize: wp('3.2%'),
+        marginLeft: wp('2%'),
+    },
+    loadingAnimation: {
+        height: wp(20),
+        width: wp(20)
     }
 });
 

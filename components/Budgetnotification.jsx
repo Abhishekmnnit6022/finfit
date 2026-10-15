@@ -4,8 +4,8 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const NOTIFICATION_STORAGE_KEY = 'BUDGET_NOTIFICATION_DATA';
-const NOTIFICATION_INTERVAL = 2 * 60 * 60 * 1000; // 3 hours in milliseconds
-const MAX_NOTIFICATIONS_PER_DAY = 3; // Maximum notifications per category per day
+const NOTIFICATION_INTERVAL = 3 * 60 * 60 * 1000; // At least 3 hours in milliseconds
+const MAX_NOTIFICATIONS_PER_DAY = 1; // Strictly only 1 notification per category per day
 
 // Set the notification handler
 Notifications.setNotificationHandler({
@@ -44,7 +44,7 @@ export const useBudgetNotifications = () => {
         }
         setIsInitialized(true);
       } catch (error) {
-        console.error('Error loading notification data:', error);
+        console.warn('Notification data notice:', error?.message);
         setIsInitialized(true);
       }
     };
@@ -57,7 +57,7 @@ export const useBudgetNotifications = () => {
     try {
       await AsyncStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
-      console.error('Error saving notification data:', error);
+      console.warn('Save notification notice:', error?.message);
     }
   };
 
@@ -92,7 +92,7 @@ export const useBudgetNotifications = () => {
       console.log('Notification permissions granted');
       return true;
     } catch (error) {
-      console.error('Error requesting notification permissions:', error);
+      console.warn('Request notification permissions notice:', error?.message);
       return false;
     }
   }, []);
@@ -221,13 +221,13 @@ export const useBudgetNotifications = () => {
         }
       }
     } catch (error) {
-      console.error('Error sending notification:', error);
+      console.warn('Send notification notice:', error?.message);
     }
   }, [notificationData, isInitialized]);
 
   const checkBudgetThresholds = useCallback((budgets, spentByCategory = {}) => {
     if (!Array.isArray(budgets)) {
-      console.error('Budgets is not an array:', budgets);
+      console.warn('Budgets is not an array:', budgets);
       return;
     }
 

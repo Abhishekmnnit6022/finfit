@@ -46,7 +46,7 @@ const QRScreen = () => {
     <SafeAreaView style={styles.container}>
        <StatusBar translucent={false} backgroundColor={COLORS.background} barStyle="light-content" />
       <View style={styles.header}>
-        <TouchableOpacity style={styles.menuButton} onPress={() => router.push('(tabs)')}>
+        <TouchableOpacity style={styles.menuButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={wp('6%')} color={COLORS.text.primary} />
           </TouchableOpacity>
           <Image source={require('../assets/images/logo.png')} style={styles.logo} resizeMode="contain" />

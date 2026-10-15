@@ -14,6 +14,7 @@ import {
 import { DrawerContentScrollView, DrawerItem } from "@react-navigation/drawer";
 import { Drawer } from "expo-router/drawer";
 import { MaterialIcons, Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEffect } from "react";
 import {
   widthPercentageToDP as wp,
@@ -32,8 +33,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { ExpoCamera } from 'expo-camera';
 import { Alert } from 'react-native';
 import CurrencySelector from "../../components/CurrencySettings";
+
 const CustomDrawerContent = (props) => {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [isExportModalVisible, setIsExportModalVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -132,14 +135,18 @@ const CustomDrawerContent = (props) => {
 
   return (
     <>
-      <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerContent}>
+      <DrawerContentScrollView
+        {...props}
+        contentContainerStyle={[styles.drawerContent, { paddingTop: 0 }]}
+        style={{ backgroundColor: COLORS.background }}
+      >
         <StatusBar
           barStyle="light-content"
           backgroundColor={COLORS.background}
           translucent={true}
           hidden={false}
         />
-        <View style={styles.profileContainer}>
+        <View style={[styles.profileContainer, { paddingTop: Math.max(insets.top, hp("2%")) + hp("1.5%") }]}>
           <Image
             source={require("../../assets/images/logoFinFit.png")}
             style={styles.profileImage}
@@ -276,6 +283,7 @@ export default function Layout({ navigation }) {
         headerShown: false,
         drawerStyle: {
           width: wp("72%"),
+          backgroundColor: COLORS.background,
         },
         swipeEnabled: true,
         drawerType: "front",
@@ -292,13 +300,13 @@ export default function Layout({ navigation }) {
 
 const styles = StyleSheet.create({
   drawerContent: {
-    flex: 1,
+    paddingTop: 0,
+    flexGrow: 1,
     backgroundColor: "#f4f4f4",
   },
   profileContainer: {
     alignItems: "center",
     padding: wp("5%"),
-    paddingTop: hp("5%"),
     backgroundColor: COLORS.background,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.lightbackground,

@@ -67,17 +67,13 @@ export const PaymentService = {
 
   handleUPIPayment: async (app, amount, note, merchantUPI) => {
     try {
-      const upiUrl = PaymentService.createUPILink(amount, note, merchantUPI);
+      const upiUrl = 'upi://pay';
       
       if (Platform.OS === 'android') {
-        // For Android, use Intent Launcher with proper activity flags
         const activity = {
-          package: app.package,
+          package: app?.package,
           data: upiUrl,
-          flags: [
-            IntentLauncher.FLAG_ACTIVITY_NEW_TASK,
-            IntentLauncher.FLAG_ACTIVITY_SINGLE_TOP
-          ]
+          flags: (IntentLauncher.FLAG_ACTIVITY_NEW_TASK || 0x10000000)
         };
         
         return await IntentLauncher.startActivityAsync(
@@ -85,9 +81,8 @@ export const PaymentService = {
           activity
         );
       } else {
-        // For iOS, try specific app URI first, then fallback to universal UPI link
         try {
-          const appSpecificUrl = `${app.uriSchema}${upiUrl.substring(4)}`; // Remove 'upi:' prefix
+          const appSpecificUrl = `${app?.uriSchema || 'upi'}://`;
           const canOpenApp = await Linking.canOpenURL(appSpecificUrl);
           
           if (canOpenApp) {
@@ -95,19 +90,16 @@ export const PaymentService = {
             return true;
           }
           
-          // Fallback to universal UPI URL
-          const canOpenUPI = await Linking.canOpenURL(upiUrl);
-          if (canOpenUPI) {
-            await Linking.openURL(upiUrl);
-            return true;
-          }
+          await Linking.openURL(upiUrl);
+          return true;
         } catch (error) {
-          console.error('iOS linking error:', error);
+          console.warn('iOS linking fallback:', error?.message);
+          await Linking.openURL(upiUrl);
+          return true;
         }
-        return false;
       }
     } catch (error) {
-      console.error('Payment error:', error);
+      console.warn('Payment launch notice:', error?.message);
       return false;
     }
   },

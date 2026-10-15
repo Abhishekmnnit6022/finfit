@@ -42,7 +42,7 @@ const Login = () => {
         throw new Error('Network response was not ok');
       }
       Alert.alert('Login Successful', 'You have successfully logged in!');
-      router.replace('(drawer)');
+      router.replace('/(drawer)');
     } catch (error) {
       setIsLoading(false);
       console.error('There was a problem with the login operation:', error);

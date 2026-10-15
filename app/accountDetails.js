@@ -35,8 +35,8 @@ const AccountDetailsScreen = () => {
   const renderTransactionItem = ({ item }) => (
     <View style={styles.transactionCard}>
       <View style={styles.transactionDetails}>
-        <Text style={styles.transactionCategory}>{item.category}</Text>
-        <Text style={styles.transactionNote}>{item.note || 'No note'}</Text>
+        <Text style={styles.transactionCategory}>{t(item.category) || item.category}</Text>
+        <Text style={styles.transactionNote}>{item.note || t('No note') || 'No note'}</Text>
         <Text style={styles.transactionDate}>{format(new Date(item.date), 'dd MMM, yyyy')}</Text>
       </View>
       <Text style={[
