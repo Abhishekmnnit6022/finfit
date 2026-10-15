@@ -26,7 +26,6 @@ import { useGlobalContext } from './../../components/globalProvider';
 import { COLORS } from "../../constants/theme";
 import ExportDataModal from '../../components/ExportDataModal';
 import { set } from "date-fns";
-import { backupService } from '../../components/backup';
 import QRScannerModel from "../../components/QRCodeScanner"
 import { useRouter } from "expo-router";
 import * as ImagePicker from 'expo-image-picker';
@@ -74,17 +73,6 @@ const CustomDrawerContent = (props) => {
     }
   };
 
-  const handleBackup = async () => {
-    try {
-      await backupService.exportToMongoDB();
-      alert('Backup completed successfully');
-      await loadExpensesFromDB();
-
-    } catch (error) {
-      alert('Backup failed: ' + error.message);
-    }
-  };
-
   const handleLanguageSelect = (language) => {
     console.log("Current language in state:", state.language);
     changeLanguage(language);
@@ -100,10 +88,10 @@ const CustomDrawerContent = (props) => {
   const handleScanSuccess = async (data) => {
     try {
       await importTransferData(data);
-      alert('Data imported successfully!');
+      Alert.alert('Sync Successful', 'Your expenses have been transferred and synced successfully!');
       setDataImported(true);
     } catch (error) {
-      alert('Error importing data: ' + error.message);
+      Alert.alert('Sync Failed', 'Error importing data: ' + (error?.message || 'Invalid QR code'));
     } finally {
       setIsQRScannerVisible(false);
     }
@@ -148,10 +136,10 @@ const CustomDrawerContent = (props) => {
         />
         <View style={[styles.profileContainer, { paddingTop: Math.max(insets.top, hp("2%")) + hp("1.5%") }]}>
           <Image
-            source={require("../../assets/images/logoFinFit.png")}
-            style={styles.profileImage}
+            source={require("../../assets/images/logoFinFitWhite.png")}
+            style={[styles.profileImage, { tintColor: "#FFFFFF" }]}
           />
-          <Text style={styles.userName}>{t('TeamAuxin')}</Text>
+          <Text style={styles.userName}>FinFit</Text>
         </View>
         <View style={styles.drawerItemsContainer}>
           {props.state.routes
@@ -177,46 +165,46 @@ const CustomDrawerContent = (props) => {
 
           <DrawerItem
             label={t('Language')}
-            icon={() => <Ionicons name="language" size={wp("6%")} color={"#000000"} />}
+            icon={() => <Ionicons name="language" size={wp("6%")} color={COLORS.text.primary} />}
             onPress={() => setIsModalVisible(true)}
-            labelStyle={{ color: COLORS.background }}
+            labelStyle={{ color: COLORS.text.primary }}
           />
           <DrawerItem
             label={t('Scan QR')}
-            icon={() => <MaterialIcons name="qr-code-scanner" size={wp("6%")} color={"#000000"} />}
+            icon={() => <MaterialIcons name="qr-code-scanner" size={wp("6%")} color={COLORS.text.primary} />}
             onPress={handleScanQR}
-            labelStyle={{ color: COLORS.background }}
+            labelStyle={{ color: COLORS.text.primary }}
           />
           <DrawerItem
             label={t('Export Data')}
-            icon={() => <Ionicons name="exit" size={wp("6%")} color={"#000000"} />}
+            icon={() => <Ionicons name="exit" size={wp("6%")} color={COLORS.text.primary} />}
             onPress={() => setIsExportModalVisible(true)}
-            labelStyle={{ color: COLORS.background }}
+            labelStyle={{ color: COLORS.text.primary }}
           />
            <DrawerItem
               label={t('CurrencySettings')}
-              icon={() => <MaterialIcons name="money" size={wp("6%")} color="#1f1f1f" />}
+              icon={() => <MaterialIcons name="money" size={wp("6%")} color={COLORS.text.primary} />}
               onPress={() => setIsCurrencyModalVisible(true)}
-              labelStyle={{ color: COLORS.background }}
+              labelStyle={{ color: COLORS.text.primary }}
             />      
           <DrawerItem
             label={t('Backup')}
-            icon={() => <MaterialIcons name="logout" size={wp("6%")} color="#1f1f1f" />}
+            icon={() => <MaterialIcons name="logout" size={wp("6%")} color={COLORS.text.primary} />}
             onPress={() => router.push('/signup')}
-            labelStyle={{ color: COLORS.background }}
+            labelStyle={{ color: COLORS.text.primary }}
           />
           <DrawerItem
 
             label={t('Help')}
-            icon={() => <MaterialIcons name="help-outline" size={wp("6%")} color={"#000000"} />}
+            icon={() => <MaterialIcons name="help-outline" size={wp("6%")} color={COLORS.text.primary} />}
             onPress={() => Linking.openURL("https://forms.gle/5iJKWrfCXMsviTiL8")}
-            labelStyle={{ color: COLORS.background }}
+            labelStyle={{ color: COLORS.text.primary }}
           />
           <DrawerItem
             label={t('Feedback')}
-            icon={() => <MaterialIcons name="feedback" size={wp("6%")} color={"#000000"} />}
+            icon={() => <MaterialIcons name="feedback" size={wp("6%")} color={COLORS.text.primary} />}
             onPress={() => Linking.openURL("https://forms.gle/5iJKWrfCXMsviTiL8")}
-            labelStyle={{ color: COLORS.background }}
+            labelStyle={{ color: COLORS.text.primary }}
           />
            
         </View>
@@ -226,20 +214,27 @@ const CustomDrawerContent = (props) => {
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>{t('selectLanguage')}</Text>
-            {["English", "Hindi", "Tamil"].map((language) => (
+            {[
+              { id: "English", label: "English" },
+              { id: "Hindi", label: "Hindi (हिंदी)" },
+              { id: "Tamil", label: "Tamil (தமிழ்)" },
+              { id: "Kannada", label: "Kannada (ಕನ್ನಡ)" },
+              { id: "Marathi", label: "Marathi (मराठी)" },
+              { id: "Urdu", label: "Urdu (اردو)" },
+            ].map(({ id, label }) => (
               <TouchableOpacity
-                key={language}
+                key={id}
                 style={[
                   styles.languageOption,
-                  state.language === language && styles.selectedLanguage
+                  state.language === id && styles.selectedLanguage
                 ]}
-                onPress={() => handleLanguageSelect(language)}
+                onPress={() => handleLanguageSelect(id)}
               >
                 <Text style={[
                   styles.languageText,
-                  state.language === language && styles.selectedLanguageText
+                  state.language === id && styles.selectedLanguageText
                 ]}>
-                  {language}
+                  {label}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -302,7 +297,7 @@ const styles = StyleSheet.create({
   drawerContent: {
     paddingTop: 0,
     flexGrow: 1,
-    backgroundColor: "#f4f4f4",
+    backgroundColor: COLORS.background,
   },
   profileContainer: {
     alignItems: "center",
@@ -317,7 +312,7 @@ const styles = StyleSheet.create({
     resizeMode: "contain",
     borderRadius: wp("10%"),
     marginBottom: hp("1%"),
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
   },
   userName: {
     fontSize: wp("5%"),
@@ -338,25 +333,26 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
   },
   modalContent: {
-    backgroundColor: "white",
-    padding: 20,
-    borderRadius: 10,
-    width: wp("80%"),
+    backgroundColor: COLORS.lightbackground,
+    padding: 22,
+    borderRadius: 16,
+    width: wp("85%"),
   },
   modalTitle: {
     fontSize: wp("5%"),
     fontWeight: "bold",
     marginBottom: 15,
     textAlign: "center",
+    color: COLORS.text.primary,
   },
   languageOption: {
-    padding: 15,
-    borderRadius: 5,
+    padding: 14,
+    borderRadius: 10,
     marginVertical: 5,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
   },
   selectedLanguage: {
     backgroundColor: COLORS.primary,
@@ -364,20 +360,23 @@ const styles = StyleSheet.create({
   languageText: {
     fontSize: wp("4%"),
     textAlign: "center",
+    color: COLORS.text.primary,
   },
   selectedLanguageText: {
-    color: "white",
+    color: "#FFFFFF",
+    fontWeight: "bold",
   },
   closeButton: {
     marginTop: 15,
-    padding: 10,
-    backgroundColor: COLORS.text.secondary,
-    borderRadius: 5,
+    padding: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 10,
   },
   closeButtonText: {
-    color: "white",
+    color: COLORS.text.primary,
     textAlign: "center",
     fontSize: wp("4%"),
+    fontWeight: "600",
   },
   currencyGrid: {
     flexDirection: 'row',

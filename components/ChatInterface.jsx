@@ -10,6 +10,7 @@ import {
     StyleSheet,
     ActivityIndicator,
     SafeAreaView,
+    ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from "@expo/vector-icons";
@@ -19,14 +20,20 @@ import {
     heightPercentageToDP as hp,
 } from "react-native-responsive-screen";
 import { chatWithAI, getInitialAnalysis } from '../utils/aiService';
-import LottieView from 'lottie-react-native';
+
+const SUGGESTED_QUERIES = [
+    'Tell me about my expenses 💳',
+    'How can I save money? 💰',
+    'Help me budget 📊',
+    'Food & canteen tips 🍔',
+];
 
 const ChatInterface = ({ summary, transactions, onClose }) => {
     const insets = useSafeAreaInsets();
     const [messages, setMessages] = useState([
         {
             id: '1',
-            text: "Hi! I'm your personal finance advisor from Team Auxin. I'm analyzing your financial data...",
+            text: "Hi! I'm your personal finance advisor from FinFit. I'm analyzing your financial data...",
             isUser: false,
         },
     ]);
@@ -64,21 +71,24 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
         fetchInitialAnalysis();
     }, [summary, transactions]);
 
-    const handleSend = async () => {
-        if (!inputText.trim()) return;
+    const handleSend = async (customText = null) => {
+        const textToSend = (typeof customText === 'string' ? customText : inputText).trim();
+        if (!textToSend || isLoading) return;
 
         const userMessage = {
             id: Date.now().toString(),
-            text: inputText.trim(),
+            text: textToSend,
             isUser: true,
         };
 
         setMessages(prev => [...prev, userMessage]);
-        setInputText('');
+        if (!customText) {
+            setInputText('');
+        }
         setIsLoading(true);
 
         try {
-            const response = await chatWithAI(inputText, summary, transactions);
+            const response = await chatWithAI(textToSend, summary, transactions);
             const aiMessage = {
                 id: (Date.now() + 1).toString(),
                 text: response,
@@ -190,6 +200,24 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
                 />
 
                 <View style={[styles.inputWrapper, { paddingBottom: Math.max(insets.bottom, hp('1.5%')) }]}>
+                    {/* Quick suggestion chips */}
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.suggestionRow}
+                    >
+                        {SUGGESTED_QUERIES.map((q, idx) => (
+                            <TouchableOpacity
+                                key={idx}
+                                style={styles.suggestionChip}
+                                onPress={() => handleSend(q)}
+                                disabled={isLoading}
+                            >
+                                <Text style={styles.suggestionChipText}>{q}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+
                     <View style={styles.inputContainer}>
                         <TextInput
                             style={styles.input}
@@ -202,7 +230,7 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
                             maxLength={500}
                         />
                         <TouchableOpacity
-                            onPress={handleSend}
+                            onPress={() => handleSend()}
                             style={[
                                 styles.sendButton,
                                 inputText.trim() && !isLoading && styles.sendButtonActive,
@@ -314,17 +342,30 @@ const styles = StyleSheet.create({
     aiMessageText: {
         color: COLORS.text.primary,
     },
-    bulletLine: {
-        fontSize: wp('3.6%'),
-        color: COLORS.text.primary,
-        lineHeight: wp('5.2%'),
+    suggestionRow: {
+        paddingVertical: hp('0.8%'),
+        paddingHorizontal: wp('1%'),
+        gap: wp('2%'),
+    },
+    suggestionChip: {
+        backgroundColor: COLORS.lightbackground,
+        paddingHorizontal: wp('3%'),
+        paddingVertical: hp('0.8%'),
+        borderRadius: wp('4%'),
+        borderWidth: 1,
+        borderColor: 'rgba(237, 253, 154, 0.25)',
+    },
+    suggestionChipText: {
+        fontSize: wp('3.1%'),
+        color: COLORS.secondary,
+        fontWeight: '500',
     },
     inputWrapper: {
         backgroundColor: COLORS.background,
         borderTopWidth: 1,
         borderTopColor: COLORS.lightbackground,
         paddingHorizontal: wp('3%'),
-        paddingTop: hp('1%'),
+        paddingTop: hp('0.5%'),
     },
     inputContainer: {
         flexDirection: 'row',
@@ -333,6 +374,7 @@ const styles = StyleSheet.create({
         borderRadius: wp('5%'),
         paddingHorizontal: wp('3%'),
         paddingVertical: hp('0.5%'),
+        marginTop: hp('0.5%'),
     },
     input: {
         flex: 1,
@@ -364,10 +406,6 @@ const styles = StyleSheet.create({
         fontSize: wp('3.2%'),
         marginLeft: wp('2%'),
     },
-    loadingAnimation: {
-        height: wp(20),
-        width: wp(20)
-    }
 });
 
 export default ChatInterface;
