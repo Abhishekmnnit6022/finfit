@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "finfit",
+    "name": "FinFit",
     "slug": "finfit",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/logo.png",
+    "icon": "./assets/images/icon.png",
     "scheme": "finfit",
     "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/images/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#fff"
+      "backgroundColor": "#101010"
     },
     "ios": {
-      "icon": "./assets/images/splash.png",
+      "icon": "./assets/images/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.Kharshit801.finfit",
       "buildNumber": "1.0.0",
@@ -40,8 +40,8 @@
       "package": "com.Kharshit801.finfit",
       "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/logo.png",
-        "backgroundColor": "#1f1f1f"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#101010"
       },
       "permissions": [
         "QUERY_ALL_PACKAGES",
@@ -52,7 +52,8 @@
           "com.google.android.apps.nbu.paisa.user",
           "net.one97.paytm",
           "com.phonepe.app",
-          "in.org.npci.upiapp"
+          "in.org.npci.upiapp",
+          "com.dreamplug.androidapp"
         ]
       },
       "intentFilters": [
@@ -70,7 +71,7 @@
         }
       ],
       "notifications": {
-        "icon": "./assets/images/logo.png"
+        "icon": "./assets/images/notification-icon.png"
       }
     },
     "web": {
@@ -99,11 +100,6 @@
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "extra": {
-      "eas": {
-        "projectId": "1ec8fb3d-6d5b-4467-8226-e2dc033ef6c1"
-      }
     }
   }
 }
