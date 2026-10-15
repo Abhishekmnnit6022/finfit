@@ -14,7 +14,9 @@ import {
   Alert,
   TextInput,
   ScrollView,
+  Animated,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
 import * as ImagePicker from "expo-image-picker";
@@ -35,6 +37,7 @@ import {
   endOfMonth,
   isWithinInterval,
 } from "date-fns";
+import { hi, ta } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 
 const MoneyTracker = () => {
@@ -48,10 +51,67 @@ const MoneyTracker = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [filters, setFilters] = useState({ type: "ALL", categories: [] });
+  const [showFabGuide, setShowFabGuide] = useState(false);
+
+  // Animated scale values for buttons
+  const plusScale = React.useRef(new Animated.Value(1)).current;
+  const cameraScale = React.useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = (anim) => {
+    Animated.spring(anim, {
+      toValue: 0.9,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = (anim) => {
+    Animated.spring(anim, {
+      toValue: 1,
+      friction: 4,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
 
   useEffect(() => {
     loadExpensesFromDB();
+    const checkFabGuide = async () => {
+      try {
+        const hasSeen = await AsyncStorage.getItem("FINFIT_FAB_GUIDE_DISMISSED");
+        if (!hasSeen) {
+          setShowFabGuide(true);
+        }
+      } catch (err) {
+        console.warn("Error reading fab guide status:", err?.message);
+      }
+    };
+    checkFabGuide();
   }, []);
+
+  const dismissFabGuide = async () => {
+    try {
+      await AsyncStorage.setItem("FINFIT_FAB_GUIDE_DISMISSED", "true");
+      setShowFabGuide(false);
+    } catch (err) {
+      setShowFabGuide(false);
+    }
+  };
+
+  const getDateLocale = useCallback(() => {
+    const lang = (i18n.language || state.language || "").toLowerCase();
+    if (lang.includes("hi") || lang.includes("hn")) return hi;
+    if (lang.includes("ta") || lang.includes("tm")) return ta;
+    return undefined;
+  }, [i18n.language, state.language]);
+
+  const formattedMonthText = useMemo(() => {
+    try {
+      const date = parseISO(state.currentMonth);
+      return format(date, "MMMM, yyyy", { locale: getDateLocale() });
+    } catch (e) {
+      return format(parseISO(state.currentMonth), "MMMM, yyyy");
+    }
+  }, [state.currentMonth, getDateLocale]);
 
   useEffect(() => {
     if (state.language && i18n.language !== state.language) {
@@ -240,11 +300,12 @@ const MoneyTracker = () => {
       isFromOCR: true,
       amount: parseFloat(prefill.amount) || 0,
       type: "EXPENSE",
-      date: new Date().toISOString(),
-      category: prefill.category || "Other",
+      date: prefill.date || new Date().toISOString(),
+      category: prefill.category || "",
       account: prefill.account || "Cash",
       note: prefill.notes || prefill.merchant || "",
       currency: state.defaultCurrency || "INR",
+      openCategoryPicker: Boolean(prefill.openCategoryPicker),
     });
     setShowCalculator(true);
   };
@@ -252,7 +313,17 @@ const MoneyTracker = () => {
   const handleOCR = async (base64Image) => {
     try {
       const parser = new ReceiptParser();
-      const details = await parser.parseReceipt(base64Image);
+      const availableCategories = state.categories?.EXPENSE || [
+        "Food & Dining",
+        "Transportation",
+        "Shopping",
+        "Entertainment",
+        "Bills & Utilities",
+        "Health & Fitness",
+        "Travel",
+        "Other"
+      ];
+      const details = await parser.parseReceipt(base64Image, { categories: availableCategories });
 
       if (!details || !details.amount || details.amount <= 0) {
         Alert.alert(
@@ -265,9 +336,10 @@ const MoneyTracker = () => {
               onPress: () => {
                 openCalculatorWithDetails({
                   amount: 0,
-                  category: details?.category || "Other",
+                  category: details?.category && details?.category !== "Other" ? details.category : "",
                   account: details?.account || "Cash",
                   notes: details?.notes || details?.merchant || "",
+                  openCategoryPicker: true,
                 });
               },
             },
@@ -276,53 +348,85 @@ const MoneyTracker = () => {
         return;
       }
 
-      Alert.alert(
-        "Receipt Scanned",
-        `Amount: ${formatCurrency(
-          details.amount,
-          state.defaultCurrency
-        )}\nCategory: ${details.category}\nAccount: ${details.account}${
-          details.notes ? `\nNote: ${details.notes}` : ''
-        }\n\nReview details before saving so nothing is wrong:`,
-        [
-          {
-            text: "Edit Details",
-            onPress: () => {
-              openCalculatorWithDetails(details);
-            },
-          },
-          {
-            text: "Save As-Is",
-            onPress: async () => {
-              const formattedTransaction = {
-                amount: parseFloat(details.amount),
-                type: "EXPENSE",
-                date: new Date().toISOString(),
-                category: details.category || "Other",
-                account: details.account || "Cash",
-                note: details.notes || "",
-                currency: state.defaultCurrency || "INR",
-              };
+      const hasValidCategory = details.category && details.category !== 'Other';
 
-              try {
-                await onSave(formattedTransaction);
-                await loadExpensesFromDB();
-                Alert.alert("Success", "Transaction added successfully!");
-              } catch (error) {
-                console.error("Error saving transaction:", error);
-                Alert.alert(
-                  "Error",
-                  "Failed to save transaction. Please try again."
-                );
-              }
+      if (hasValidCategory) {
+        Alert.alert(
+          "Receipt Scanned",
+          `Amount: ${formatCurrency(
+            details.amount,
+            state.defaultCurrency
+          )}\nCategory: ${details.category} (Auto-Categorized)\nAccount: ${details.account}${
+            details.notes ? `\nNote: ${details.notes}` : ''
+          }\n\nIs this category correct for budget tracking?`,
+          [
+            {
+              text: "Save",
+              onPress: async () => {
+                const formattedTransaction = {
+                  amount: parseFloat(details.amount),
+                  type: "EXPENSE",
+                  date: details.date || new Date().toISOString(),
+                  category: details.category,
+                  account: details.account || "Cash",
+                  note: details.notes || "",
+                  currency: state.defaultCurrency || "INR",
+                };
+
+                try {
+                  await onSave(formattedTransaction);
+                  await loadExpensesFromDB();
+                  Alert.alert("Success", "Transaction added successfully!");
+                } catch (error) {
+                  console.error("Error saving transaction:", error);
+                  Alert.alert(
+                    "Error",
+                    "Failed to save transaction. Please try again."
+                  );
+                }
+              },
             },
-          },
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-        ]
-      );
+            {
+              text: "Edit",
+              onPress: () => {
+                openCalculatorWithDetails({
+                  ...details,
+                  openCategoryPicker: true,
+                });
+              },
+            },
+            {
+              text: "Cancel",
+              style: "cancel",
+            },
+          ]
+        );
+      } else {
+        // Prompt user to select category for budget tracking & notifications
+        Alert.alert(
+          "Category Needed for Budget Tracking",
+          `Amount: ${formatCurrency(
+            details.amount,
+            state.defaultCurrency
+          )}\nMerchant: ${details.merchant || details.notes || 'Receipt'}\n\nWe couldn't automatically determine the category. Please pick a category so your budget tracking and notifications stay accurate:`,
+          [
+            {
+              text: "Edit",
+              onPress: () => {
+                openCalculatorWithDetails({
+                  ...details,
+                  category: "",
+                  openCategoryPicker: true,
+                });
+              },
+            },
+            {
+              text: "Cancel",
+              style: "cancel",
+            },
+          ]
+        );
+      }
     } catch (error) {
       console.error("Receipt Processing Error:", error);
       Alert.alert(
@@ -418,7 +522,7 @@ const MoneyTracker = () => {
           />
         </TouchableOpacity>
         <Text style={styles.monthText}>
-          {format(parseISO(state.currentMonth), "MMMM, yyyy")}
+          {formattedMonthText}
         </Text>
         <TouchableOpacity onPress={handleNextMonth}>
           <Ionicons
@@ -484,27 +588,107 @@ const MoneyTracker = () => {
         )}
       </ScrollView>
 
-      {/* Floating Action Buttons */}
-      {/* Plus button for manual expense entry */}
-      <TouchableOpacity
-        style={styles.addButton}
-        onPress={() => setShowCalculator(true)}
-      >
-        <Ionicons name="add" size={wp("7%")} color="#FFFFFF" />
-      </TouchableOpacity>
+      {/* First-install hover/coachmark guide overlay */}
+      {showFabGuide && (
+        <View style={styles.fabGuideOverlay}>
+          <TouchableOpacity
+            style={styles.fabGuideBackdrop}
+            activeOpacity={1}
+            onPress={dismissFabGuide}
+          />
+          <View style={styles.fabGuideCard}>
+            <View style={styles.fabGuideHeader}>
+              <Ionicons name="sparkles" size={wp("4.5%")} color="#F59E0B" />
+              <Text style={styles.fabGuideTitle}>
+                {t("Quick Actions Guide") || "Quick Actions"}
+              </Text>
+            </View>
 
-      {/* Camera button for OCR receipt scanning */}
-      <TouchableOpacity
-        style={styles.cameraButton}
-        onPress={showImageSourceOptions}
+            <View style={styles.fabGuideItem}>
+              <View style={styles.fabGuideIconWrap}>
+                <Ionicons name="add" size={wp("4.5%")} color="#FFFFFF" />
+              </View>
+              <View style={styles.fabGuideTextWrap}>
+                <Text style={styles.fabGuideItemTitle}>
+                  {t("Manual Record") || "Manual Record"}
+                </Text>
+                <Text style={styles.fabGuideItemDesc}>
+                  {t("Tap to add an expense, income, or transfer") ||
+                    "Tap to add an expense, income, or transfer"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.fabGuideItem}>
+              <View style={styles.fabGuideIconWrap}>
+                <Ionicons name="camera" size={wp("4%")} color="#FFFFFF" />
+              </View>
+              <View style={styles.fabGuideTextWrap}>
+                <Text style={styles.fabGuideItemTitle}>
+                  {t("AI Smart Scan") || "AI Smart Scan"}
+                </Text>
+                <Text style={styles.fabGuideItemDesc}>
+                  {t("Scan receipt or bill using camera or gallery") ||
+                    "Scan receipt or bill using camera or gallery"}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.fabGuideDismissBtn}
+              onPress={dismissFabGuide}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.fabGuideDismissText}>
+                {t("Got it!") || "Got it!"}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.fabGuidePointerArrow} />
+          </View>
+        </View>
+      )}
+
+      {/* Floating Action Buttons */}
+      {/* Plus button for manual expense entry with tactile spring animation */}
+      <Animated.View
+        style={[
+          styles.addButton,
+          {
+            transform: [{ scale: plusScale }],
+          },
+        ]}
       >
-        <LottieView
-          source={require("../assets/animation/camera_add.json")}
-          autoPlay
-          loop={false}
-          style={styles.animationAdd}
-        />
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.buttonInner}
+          activeOpacity={0.9}
+          onPressIn={() => handlePressIn(plusScale)}
+          onPressOut={() => handlePressOut(plusScale)}
+          onPress={() => setShowCalculator(true)}
+        >
+          <Ionicons name="add" size={wp("7.5%")} color="#FFFFFF" />
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Camera button for OCR receipt scanning with tactile spring animation */}
+      <Animated.View
+        style={[
+          styles.cameraButton,
+          {
+            transform: [{ scale: cameraScale }],
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.buttonInner}
+          activeOpacity={0.9}
+          onPressIn={() => handlePressIn(cameraScale)}
+          onPressOut={() => handlePressOut(cameraScale)}
+          onPress={showImageSourceOptions}
+        >
+          <Ionicons name="camera" size={wp("6.5%")} color="#FFFFFF" />
+        </TouchableOpacity>
+      </Animated.View>
 
       {/* Calculator Modal */}
       <Modal
@@ -603,41 +787,127 @@ const styles = StyleSheet.create({
   },
   addButton: {
     position: "absolute",
-    right: wp("7%"),
-    bottom: hp("16%"),
-    width: wp("13%"),
-    height: wp("13%"),
-    borderRadius: wp("6.5%"),
-    backgroundColor: COLORS.primary,
-    justifyContent: "center",
-    alignItems: "center",
+    right: wp("6%"),
+    bottom: hp("15.5%"),
+    width: wp("14%"),
+    height: wp("14%"),
+    borderRadius: wp("7%"),
+    backgroundColor: "#2563EB",
     elevation: 8,
-    shadowColor: COLORS.primary,
+    shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4.65,
+    shadowOpacity: 0.45,
+    shadowRadius: 5,
     zIndex: 10,
   },
   cameraButton: {
     position: "absolute",
-    right: wp("7%"),
+    right: wp("6%"),
     bottom: hp("8%"),
     width: wp("14%"),
     height: wp("14%"),
     borderRadius: wp("7%"),
     backgroundColor: "#2563EB",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 6,
+    elevation: 8,
     shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4.65,
+    shadowOpacity: 0.45,
+    shadowRadius: 5,
     zIndex: 10,
   },
-  animationAdd: {
-    width: wp("14%"),
-    height: wp("14%"),
+  buttonInner: {
+    width: "100%",
+    height: "100%",
+    borderRadius: wp("7%"),
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fabGuideOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 99,
+  },
+  fabGuideBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  fabGuideCard: {
+    position: "absolute",
+    right: wp("22%"),
+    bottom: hp("7.5%"),
+    width: wp("70%"),
+    backgroundColor: "#161B26",
+    borderRadius: wp("3.5%"),
+    padding: wp("3.5%"),
+    borderWidth: 1.5,
+    borderColor: "#2563EB",
+    elevation: 12,
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+  },
+  fabGuideHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: hp("1%"),
+    gap: wp("1.5%"),
+  },
+  fabGuideTitle: {
+    color: "#FFFFFF",
+    fontSize: wp("3.8%"),
+    fontWeight: "700",
+  },
+  fabGuideItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: hp("1%"),
+    gap: wp("2.5%"),
+  },
+  fabGuideIconWrap: {
+    width: wp("8%"),
+    height: wp("8%"),
+    borderRadius: wp("4%"),
+    backgroundColor: "#2563EB",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fabGuideTextWrap: {
+    flex: 1,
+  },
+  fabGuideItemTitle: {
+    color: "#FFFFFF",
+    fontSize: wp("3.3%"),
+    fontWeight: "600",
+  },
+  fabGuideItemDesc: {
+    color: "#94A3B8",
+    fontSize: wp("2.8%"),
+    lineHeight: wp("3.8%"),
+  },
+  fabGuideDismissBtn: {
+    backgroundColor: "#2563EB",
+    paddingVertical: hp("0.8%"),
+    borderRadius: wp("2%"),
+    alignItems: "center",
+    marginTop: hp("0.5%"),
+  },
+  fabGuideDismissText: {
+    color: "#FFFFFF",
+    fontSize: wp("3.2%"),
+    fontWeight: "600",
+  },
+  fabGuidePointerArrow: {
+    position: "absolute",
+    right: -wp("2.5%"),
+    bottom: hp("2.5%"),
+    width: 0,
+    height: 0,
+    borderTopWidth: wp("2%"),
+    borderBottomWidth: wp("2%"),
+    borderLeftWidth: wp("2.5%"),
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderLeftColor: "#2563EB",
   },
 });
 

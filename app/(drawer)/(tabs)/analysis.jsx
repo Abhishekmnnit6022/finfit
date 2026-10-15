@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   ScrollView,
   View,
@@ -21,17 +21,51 @@ import Header from "../../../components/commonheader";
 import { useGlobalContext } from "../../../components/globalProvider";
 import ChatGuidePointer from "../../../components/ChatGuidePointet";
 import LottieView from "lottie-react-native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const TIMEFRAMES = ["month", "quarter", "year"];
 
 const Analysis = () => {
+  const navigation = useNavigation();
   // Get necessary data and functions from the global context
   const { state, convertAmount } = useGlobalContext();
   const { summary, transactions, budgets, defaultCurrency, currencies } = state;
+  const [loadedBudgets, setLoadedBudgets] = useState(budgets || []);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [selectedTimeframe, setSelectedTimeframe] = useState("month");
   const screenWidth = Dimensions.get("window").width;
   const [showSpotlight, setShowSpotlight] = useState(true);
+
+  // Keep budgets synced whenever screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      const fetchBudgets = async () => {
+        try {
+          const stored = await AsyncStorage.getItem("APP_BUDGETS");
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (isMounted && Array.isArray(parsed)) {
+              setLoadedBudgets(parsed);
+            }
+          }
+        } catch (error) {
+          console.error("Error reading APP_BUDGETS in Analysis:", error);
+        }
+      };
+      fetchBudgets();
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
+
+  const activeBudgets = useMemo(() => {
+    if (loadedBudgets && loadedBudgets.length > 0) return loadedBudgets;
+    if (budgets && budgets.length > 0) return budgets;
+    return [];
+  }, [loadedBudgets, budgets]);
 
   // Get the symbol of the default currency
   const currencySymbol = currencies[defaultCurrency]?.symbol || defaultCurrency;
@@ -129,19 +163,20 @@ const Analysis = () => {
     });
 
     // Match budgets with category data
-    if (budgets && Array.isArray(budgets)) {
-      budgets.forEach((budget) => {
-        if (budget.category && budget.limit > 0) {
+    if (activeBudgets && Array.isArray(activeBudgets)) {
+      activeBudgets.forEach((budget) => {
+        const limitVal = parseFloat(budget.limit) || 0;
+        if (budget.category && limitVal > 0) {
           // Initialize category if it doesn't exist yet
           if (!categoryData[budget.category]) {
             categoryData[budget.category] = {
               amount: 0,
-              budget: budget.limit,
+              budget: limitVal,
             };
           } else {
-            categoryData[budget.category].budget = budget.limit;
+            categoryData[budget.category].budget = limitVal;
           }
-          totalBudget += budget.limit;
+          totalBudget += limitVal;
         }
       });
     }
@@ -154,7 +189,7 @@ const Analysis = () => {
           : 0;
     });
 
-    const budgetUtilization = totalBudget !== 0 ? (totalSpent / totalBudget) * 100 : 0;
+    const budgetUtilization = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
 
     return {
       periodData,
@@ -163,7 +198,7 @@ const Analysis = () => {
       totalBudget,
       budgetUtilization,
     };
-  }, [transactions, selectedTimeframe, budgets, defaultCurrency, convertAmount]);
+  }, [transactions, selectedTimeframe, activeBudgets, defaultCurrency, convertAmount]);
 
   // Prepare chart data - only include categories with spending
   const spendingTrendData = {
@@ -258,25 +293,26 @@ const Analysis = () => {
 
   // Prepare budget progress data - include all categories with budgets
   const budgetProgressData = useMemo(() => {
-    if (!budgets || !Array.isArray(budgets)) return [];
+    if (!activeBudgets || !Array.isArray(activeBudgets)) return [];
 
-    return budgets
-      .filter(budget => budget.limit > 0) // Only show budgets that have been set
+    return activeBudgets
+      .filter((budget) => (parseFloat(budget.limit) || 0) > 0) // Only show budgets that have been set
       .map((budget, index) => {
+        const limitVal = parseFloat(budget.limit) || 0;
         const categoryData = processedData.categoryData[budget.category] || { amount: 0 };
         const spent = categoryData.amount || 0;
-        const percentageUsed = budget.limit > 0 ? (spent / budget.limit) * 100 : 0;
+        const percentageUsed = limitVal > 0 ? (spent / limitVal) * 100 : 0;
 
         return {
           category: budget.category,
           spent: spent,
-          limit: budget.limit,
+          limit: limitVal,
           percentageUsed: percentageUsed,
           color: colors[index % colors.length],
         };
       })
       .sort((a, b) => b.percentageUsed - a.percentageUsed); // Sort by usage percentage
-  }, [budgets, processedData.categoryData, colors]);
+  }, [activeBudgets, processedData.categoryData, colors]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -299,15 +335,37 @@ const Analysis = () => {
               {processedData.totalSpent.toFixed(2)}
             </Text>
           </View>
-          <View style={styles.summaryCard}>
+          <TouchableOpacity
+            style={styles.summaryCard}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (processedData.totalBudget === 0) {
+                navigation.navigate("budgets");
+              }
+            }}
+          >
             <Text style={styles.summaryLabel}>Budget Utilized</Text>
-            <Text style={[
-              styles.summaryValue,
-              { color: getStatusColor(processedData.budgetUtilization) }
-            ]}>
-              {processedData.budgetUtilization.toFixed(1)}%
+            <Text
+              style={[
+                styles.summaryValue,
+                {
+                  color:
+                    processedData.totalBudget > 0
+                      ? getStatusColor(processedData.budgetUtilization)
+                      : COLORS.secondary,
+                },
+              ]}
+            >
+              {processedData.totalBudget > 0
+                ? `${processedData.budgetUtilization.toFixed(1)}%`
+                : "Not Set"}
             </Text>
-          </View>
+            {processedData.totalBudget === 0 && (
+              <Text style={{ fontSize: wp("2.8%"), color: "rgba(255,255,255,0.7)", marginTop: 2 }}>
+                Tap to set in Budgets
+              </Text>
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Spending Trend Chart */}

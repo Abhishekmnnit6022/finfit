@@ -15,6 +15,7 @@ import {
   fetchExchangeRates as fetchServiceExchangeRates,
   loadExchangeRates as loadServiceExchangeRates,
 } from "../utils/currencyService";
+import { notifyBudgetExceededForCategory } from "./Budgetnotification";
 
 const STORAGE_KEY = "APP_STATE";
 const BUDGETS_STORAGE_KEY = "APP_BUDGETS";
@@ -256,27 +257,262 @@ const initializeDatabase = async () => {
   }
 };
 
-// Generate QR data from SQLite database
+// Base64 characters table
+const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+
+// Pure JS UTF-8 to Base64 encoder - works 100% reliably in Hermes and native runtimes without Latin1 limits
+const utf8ToBase64 = (str) => {
+  if (!str) return "";
+  try {
+    const uriEncoded = encodeURIComponent(str);
+    const binaryStr = uriEncoded.replace(/%([0-9A-F]{2})/g, (_, p1) =>
+      String.fromCharCode(parseInt(p1, 16))
+    );
+    if (typeof btoa === "function") {
+      return btoa(binaryStr);
+    }
+  } catch (e) {
+    // Continue to pure JS conversion
+  }
+
+  // Pure JS fallback
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    let code = str.charCodeAt(i);
+    if (code < 0x80) {
+      bytes.push(code);
+    } else if (code < 0x800) {
+      bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+    } else if (code < 0xd800 || code >= 0xe000) {
+      bytes.push(
+        0xe0 | (code >> 12),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f)
+      );
+    } else {
+      i++;
+      code = 0x10000 + (((code & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff));
+      bytes.push(
+        0xf0 | (code >> 18),
+        0x80 | ((code >> 12) & 0x3f),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f)
+      );
+    }
+  }
+
+  let out = "";
+  let i = 0;
+  while (i < bytes.length) {
+    const b1 = bytes[i++];
+    const b2 = i < bytes.length ? bytes[i++] : NaN;
+    const b3 = i < bytes.length ? bytes[i++] : NaN;
+
+    out += B64_CHARS.charAt(b1 >> 2);
+    out += B64_CHARS.charAt(((b1 & 3) << 4) | (isNaN(b2) ? 0 : b2 >> 4));
+    out += isNaN(b2) ? "=" : B64_CHARS.charAt(((b2 & 15) << 2) | (isNaN(b3) ? 0 : b3 >> 6));
+    out += isNaN(b3) ? "=" : B64_CHARS.charAt(b3 & 63);
+  }
+  return out;
+};
+
+// Pure JS Base64 to UTF-8 decoder - converts base64 back into full UTF-8 string
+const base64ToUtf8 = (base64) => {
+  if (!base64) return "";
+  try {
+    if (typeof atob === "function") {
+      const binaryStr = atob(String(base64).trim());
+      const uriEncoded = Array.from(binaryStr)
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("");
+      return decodeURIComponent(uriEncoded);
+    }
+  } catch (e) {
+    // Continue to pure JS conversion
+  }
+
+  const clean = String(base64).trim().replace(/[=]+$/, "");
+  const bytes = [];
+  for (let bc = 0, bs = 0, buffer, idx = 0; (buffer = clean.charAt(idx++)); ) {
+    buffer = B64_CHARS.indexOf(buffer);
+    if (~buffer) {
+      bs = bc % 4 ? bs * 64 + buffer : buffer;
+      if (bc++ % 4) {
+        bytes.push(255 & (bs >> ((-2 * bc) & 6)));
+      }
+    }
+  }
+
+  let result = "";
+  let i = 0;
+  while (i < bytes.length) {
+    const c = bytes[i++];
+    if (c < 128) {
+      result += String.fromCharCode(c);
+    } else if (c > 191 && c < 224) {
+      const c2 = bytes[i++];
+      result += String.fromCharCode(((c & 31) << 6) | (c2 & 63));
+    } else if (c > 223 && c < 240) {
+      const c2 = bytes[i++];
+      const c3 = bytes[i++];
+      result += String.fromCharCode(((c & 15) << 12) | ((c2 & 63) << 6) | (c3 & 63));
+    } else {
+      const c2 = bytes[i++];
+      const c3 = bytes[i++];
+      const c4 = bytes[i++];
+      const code = (((c & 7) << 18) | ((c2 & 63) << 12) | ((c3 & 63) << 6) | (c4 & 63)) - 0x10000;
+      result += String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff));
+    }
+  }
+  return result;
+};
+
+// Prefix tag that FinFit recognizes
+const FINFIT_QR_PREFIX = "FINFIT_SECURE_V1:";
+const ENCRYPTION_SECRET = "FinFit#2026!SecureKey@TransferSync";
+
+// Generates pseudo-random keystream bytes from key and salt
+const generateKeyStream = (keyStr, saltStr, length) => {
+  const combined = keyStr + ":" + saltStr;
+  const stream = new Uint8Array(length);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < combined.length; i++) {
+    hash ^= combined.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  for (let i = 0; i < length; i++) {
+    hash = Math.imul(hash ^ (i & 0xff), 1664525) + 1013904223;
+    stream[i] = (hash >>> 16) & 0xff;
+  }
+  return stream;
+};
+
+// Encrypt payload to unreadable gibberish with salt and keystream
+const encryptPayload = (plainText) => {
+  if (!plainText) return "";
+  const salt = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+  // Get UTF-8 bytes of plainText
+  const utf8Bytes = [];
+  for (let i = 0; i < plainText.length; i++) {
+    let charcode = plainText.charCodeAt(i);
+    if (charcode < 0x80) utf8Bytes.push(charcode);
+    else if (charcode < 0x800) {
+      utf8Bytes.push(0xc0 | (charcode >> 6), 0x80 | (charcode & 0x3f));
+    } else if (charcode < 0xd800 || charcode >= 0xe000) {
+      utf8Bytes.push(0xe0 | (charcode >> 12), 0x80 | ((charcode >> 6) & 0x3f), 0x80 | (charcode & 0x3f));
+    } else {
+      i++;
+      charcode = 0x10000 + (((charcode & 0x3ff) << 10) | (plainText.charCodeAt(i) & 0x3ff));
+      utf8Bytes.push(0xf0 | (charcode >> 18), 0x80 | ((charcode >> 12) & 0x3f), 0x80 | ((charcode >> 6) & 0x3f), 0x80 | (charcode & 0x3f));
+    }
+  }
+
+  const keystream = generateKeyStream(ENCRYPTION_SECRET, salt, utf8Bytes.length);
+  const cipherBytes = new Uint8Array(utf8Bytes.length);
+  for (let i = 0; i < utf8Bytes.length; i++) {
+    cipherBytes[i] = utf8Bytes[i] ^ keystream[i];
+  }
+
+  // Base64 encode the cipher bytes
+  let binary = "";
+  for (let i = 0; i < cipherBytes.length; i++) {
+    binary += String.fromCharCode(cipherBytes[i]);
+  }
+  let base64Cipher = "";
+  if (typeof btoa === "function") {
+    base64Cipher = btoa(binary);
+  } else {
+    base64Cipher = utf8ToBase64(binary);
+  }
+
+  return `${FINFIT_QR_PREFIX}${salt}:${base64Cipher}`;
+};
+
+// Decrypt payload from gibberish back to plainText
+const decryptPayload = (encryptedStr) => {
+  if (!encryptedStr || !encryptedStr.startsWith(FINFIT_QR_PREFIX)) {
+    throw new Error("Invalid prefix");
+  }
+  const payloadPart = encryptedStr.slice(FINFIT_QR_PREFIX.length);
+  const colonIndex = payloadPart.indexOf(":");
+  if (colonIndex === -1) {
+    throw new Error("Invalid encrypted format");
+  }
+  const salt = payloadPart.slice(0, colonIndex);
+  const base64Cipher = payloadPart.slice(colonIndex + 1);
+
+  let binary = "";
+  if (typeof atob === "function") {
+    binary = atob(base64Cipher);
+  } else {
+    binary = base64ToUtf8(base64Cipher);
+  }
+
+  const cipherBytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    cipherBytes[i] = binary.charCodeAt(i);
+  }
+
+  const keystream = generateKeyStream(ENCRYPTION_SECRET, salt, cipherBytes.length);
+  const plainBytes = new Uint8Array(cipherBytes.length);
+  for (let i = 0; i < cipherBytes.length; i++) {
+    plainBytes[i] = cipherBytes[i] ^ keystream[i];
+  }
+
+  let result = "";
+  let i = 0;
+  while (i < plainBytes.length) {
+    const c = plainBytes[i++];
+    if (c < 128) {
+      result += String.fromCharCode(c);
+    } else if (c > 191 && c < 224) {
+      const c2 = plainBytes[i++];
+      result += String.fromCharCode(((c & 31) << 6) | (c2 & 63));
+    } else if (c > 223 && c < 240) {
+      const c2 = plainBytes[i++];
+      const c3 = plainBytes[i++];
+      result += String.fromCharCode(((c & 15) << 12) | ((c2 & 63) << 6) | (c3 & 63));
+    } else {
+      const c2 = plainBytes[i++];
+      const c3 = plainBytes[i++];
+      const c4 = plainBytes[i++];
+      const code = (((c & 7) << 18) | ((c2 & 63) << 12) | ((c3 & 63) << 6) | (c4 & 63)) - 0x10000;
+      result += String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff));
+    }
+  }
+  return result;
+};
+
+// Generate QR data from SQLite database (encrypted gibberish for third-party scanners)
 const generateTransferData = async () => {
   try {
-    // Open the database
     const db = await SQLite.openDatabaseAsync("expenses.db");
 
-    // Get all expenses using getAllAsync
-    const expenses = await db.getAllAsync("SELECT * FROM expenses");
+    // Get all expenses from database
+    const expenses = await db.getAllAsync("SELECT * FROM expenses ORDER BY date DESC");
 
-    // Create the data object
-    const data = {
+    // Clean and normalize expenses for QR transfer
+    const cleanedExpenses = (expenses || []).map((e) => ({
+      amount: parseFloat(e.amount) || 0,
+      type: e.type || "EXPENSE",
+      category: e.category || "Other",
+      account: e.account || "",
+      note: e.note || "",
+      date: e.date || new Date().toISOString(),
+      currency: e.currency || "INR",
+    }));
+
+    const payload = {
       timestamp: Date.now(),
-      expenses: expenses,
+      expenses: cleanedExpenses,
       version: "1.0",
     };
 
-    // Convert to JSON and then to base64
-    const jsonString = JSON.stringify(data);
-    const base64Data = btoa(jsonString);
+    const jsonString = JSON.stringify(payload);
+    // Encrypt so any random QR scanner only sees unreadable gibberish
+    const encryptedData = encryptPayload(jsonString);
 
-    return base64Data;
+    return encryptedData;
   } catch (error) {
     console.error("Error generating transfer data:", error);
     throw error;
@@ -284,57 +520,104 @@ const generateTransferData = async () => {
 };
 
 // Import data from QR code
-// First, add the missing column to your table
 const addCurrencyColumn = async () => {
-    try {
-      const db = await SQLite.openDatabaseAsync('expenses.db');
-      await db.runAsync('ALTER TABLE expenses ADD COLUMN currency TEXT DEFAULT "INR"');
+  try {
+    const db = await SQLite.openDatabaseAsync('expenses.db');
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN currency TEXT DEFAULT "INR"');
+    return true;
+  } catch (error) {
+    if (error?.message?.includes('duplicate column name')) {
       return true;
-    } catch (error) {
-      // If error is about column already existing, that's fine
-      if (error.message.includes('duplicate column name')) {
-        return true;
-      }
-      throw error;
     }
-  };
-  const importTransferData = async (base64Data) => {
-    try {
-      // First ensure the currency column exists
-      await addCurrencyColumn();
-      
-      // Rest of your existing code
-      const jsonString = atob(base64Data);
-      const data = JSON.parse(jsonString);
-      
-      if (!data.expenses || !Array.isArray(data.expenses)) {
-        throw new Error('Invalid data format');
-      }
-      
-      const db = await SQLite.openDatabaseAsync('expenses.db');
-      await db.runAsync('DELETE FROM expenses');
-      
-      for (const expense of data.expenses) {
-        await db.runAsync(
-          `INSERT INTO expenses (date, amount, type, category, account, note, currency)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [
-            expense.date || new Date().toISOString(),
-            expense.amount || 0,
-            expense.type || 'EXPENSE',
-            expense.category || 'Other',
-            expense.account || '',
-            expense.note || '',
-            expense.currency || 'INR'
-          ]
-        );
-      }
-      return true;
-    } catch (error) {
-      console.error('Error importing data:', error);
-      throw error;
+    throw error;
+  }
+};
+
+const importTransferData = async (rawData) => {
+  try {
+    await addCurrencyColumn();
+
+    if (!rawData) {
+      throw new Error("No data received from QR scan");
     }
-  };
+
+    let parsed = null;
+    if (typeof rawData === "object" && rawData !== null) {
+      parsed = rawData;
+    } else if (typeof rawData === "string") {
+      const trimmed = rawData.trim();
+
+      // 0. Primary: Check if encrypted FinFit Secure QR payload
+      if (trimmed.startsWith(FINFIT_QR_PREFIX)) {
+        try {
+          const decryptedJson = decryptPayload(trimmed);
+          parsed = JSON.parse(decryptedJson);
+        } catch (decErr) {
+          console.error("Failed to decrypt secure QR payload:", decErr);
+          throw new Error("Could not decrypt encrypted QR code: corrupted data or incompatible format");
+        }
+      } else {
+        // Fallback for legacy plain or unencrypted QR codes:
+        // 1. Try UTF-8 Base64 decoding
+        try {
+          const decoded = base64ToUtf8(trimmed);
+          parsed = JSON.parse(decoded);
+        } catch (e1) {
+          // 2. Try raw JSON parsing
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch (e2) {
+            // 3. Try standard atob fallback
+            try {
+              if (typeof atob === "function") {
+                parsed = JSON.parse(atob(trimmed));
+              }
+            } catch (e3) {
+              throw new Error("Could not decode scanned QR code data");
+            }
+          }
+        }
+      }
+    }
+
+    if (!parsed) {
+      throw new Error("Invalid or empty data inside QR code");
+    }
+
+    // Support array of expenses directly or wrapped in { expenses: [...] }
+    const expensesList = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.expenses)
+      ? parsed.expenses
+      : Array.isArray(parsed.data)
+      ? parsed.data
+      : [];
+
+    const db = await SQLite.openDatabaseAsync("expenses.db");
+    await db.runAsync("DELETE FROM expenses");
+
+    for (const expense of expensesList) {
+      await db.runAsync(
+        `INSERT INTO expenses (date, amount, type, category, account, note, currency)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          expense.date || expense.d || new Date().toISOString(),
+          parseFloat(expense.amount ?? expense.a ?? 0),
+          expense.type || expense.t || "EXPENSE",
+          expense.category || expense.c || "Other",
+          expense.account || expense.ac || "",
+          expense.note || expense.n || "",
+          expense.currency || expense.cr || "INR",
+        ]
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error importing data:", error);
+    throw error;
+  }
+};
 
 
 const globalReducer = (state, action) => {
@@ -357,11 +640,18 @@ const globalReducer = (state, action) => {
         theme: action.payload,
       };
 
-    case "ADD_TRANSACTION":
+    case "ADD_TRANSACTION": {
+      const newTransactions = [...state.transactions, action.payload];
       return {
         ...state,
-        transactions: [...state.transactions, action.payload],
+        transactions: newTransactions,
+        summary: calculateSummaryWithCurrency(
+          newTransactions,
+          state.defaultCurrency,
+          state.exchangeRates
+        ),
       };
+    }
 
     case "NEXT_MONTH":
       return {
@@ -385,9 +675,15 @@ const globalReducer = (state, action) => {
     case "LOAD_STATE": {
       if (!action.payload) return initialState;
       const loaded = action.payload;
+      const loadedTxs = loaded.transactions || initialState.transactions;
       return {
         ...initialState,
         ...loaded,
+        summary: calculateSummaryWithCurrency(
+          loadedTxs,
+          loaded.defaultCurrency || state.defaultCurrency,
+          loaded.exchangeRates || state.exchangeRates
+        ),
         categories: {
           EXPENSE: Array.from(new Set([...(initialState.categories.EXPENSE || []), ...(loaded.categories?.EXPENSE || [])])),
           INCOME: Array.from(new Set([...(initialState.categories.INCOME || []), ...(loaded.categories?.INCOME || [])])),
@@ -409,13 +705,20 @@ const globalReducer = (state, action) => {
         language: action.payload,
       };
 
-    case "DELETE_TRANSACTION":
+    case "DELETE_TRANSACTION": {
+      const remainingTransactions = state.transactions.filter((t) => t.id !== action.payload);
       return {
         ...state,
-        transactions: state.transactions.filter((t) => t.id !== action.payload),
+        transactions: remainingTransactions,
+        summary: calculateSummaryWithCurrency(
+          remainingTransactions,
+          state.defaultCurrency,
+          state.exchangeRates
+        ),
       };
+    }
 
-    case "EDIT_TRANSACTION":
+    case "EDIT_TRANSACTION": {
       const transactionIndex = state.transactions.findIndex(
         (t) => t.id === action.payload.id
       );
@@ -425,9 +728,15 @@ const globalReducer = (state, action) => {
         return {
           ...state,
           transactions: transactionsCopy,
+          summary: calculateSummaryWithCurrency(
+            transactionsCopy,
+            state.defaultCurrency,
+            state.exchangeRates
+          ),
         };
       }
       return state;
+    }
 
     case "UPDATE_CATEGORY_BUDGET":
       const newCategoryBudgets = {
@@ -859,6 +1168,35 @@ export const GlobalProvider = ({ children }) => {
         });
       }
       await loadExpensesFromDB();
+
+      // Check category budget limit and immediately alert if expenditure causes or continues an over-budget status
+      if (transactionData?.category && (!transactionData.type || transactionData.type === "EXPENSE")) {
+        try {
+          const savedBudgetsStr = await AsyncStorage.getItem(BUDGETS_STORAGE_KEY);
+          if (savedBudgetsStr) {
+            const savedBudgets = JSON.parse(savedBudgetsStr);
+            const budget = savedBudgets?.find(
+              (b) => b.category === transactionData.category
+            );
+            if (budget && budget.limit > 0) {
+              const spentData = await fetchSpentByCategory();
+              const categorySpentItem = (spentData || []).find(
+                (item) => item.category === transactionData.category
+              );
+              const totalSpent = categorySpentItem ? categorySpentItem.totalSpent : 0;
+              if (totalSpent >= budget.limit) {
+                await notifyBudgetExceededForCategory(
+                  transactionData.category,
+                  totalSpent,
+                  budget.limit
+                );
+              }
+            }
+          }
+        } catch (budgetErr) {
+          console.warn("Budget check error in onSave:", budgetErr?.message);
+        }
+      }
     } catch (error) {
       console.error("Error saving transaction: from global provider", error);
     }
@@ -930,12 +1268,24 @@ export const GlobalProvider = ({ children }) => {
         dispatch({ type: "LOAD_STATE", payload: JSON.parse(savedState) });
       }
 
+      const savedBudgets = await AsyncStorage.getItem(BUDGETS_STORAGE_KEY);
+      if (savedBudgets) {
+        try {
+          dispatch({ type: "UPDATE_BUDGET", payload: JSON.parse(savedBudgets) });
+        } catch (e) {
+          console.warn("Could not parse saved budgets:", e);
+        }
+      }
+
       const savedLanguage = await AsyncStorage.getItem("APP_LANGUAGE");
       if (savedLanguage) {
         let lang = savedLanguage;
         if (lang === "en") lang = "English";
         else if (lang === "hi" || lang === "hn") lang = "Hindi";
         else if (lang === "ta" || lang === "tm") lang = "Tamil";
+        else if (lang === "kn") lang = "Kannada";
+        else if (lang === "mr") lang = "Marathi";
+        else if (lang === "ur") lang = "Urdu";
         dispatch({ type: "SET_LANGUAGE", payload: lang });
         console.log("Loaded saved language:", lang);
       } else {
@@ -1092,6 +1442,12 @@ export const GlobalProvider = ({ children }) => {
     });
   };
 
+  const handleImportTransferData = async (rawData) => {
+    const result = await importTransferData(rawData);
+    await loadExpensesFromDB();
+    return result;
+  };
+
   return (
     <GlobalContext.Provider
       value={{
@@ -1117,7 +1473,7 @@ export const GlobalProvider = ({ children }) => {
         convertAmount,
         setDefaultCurrency,
         generateTransferData,
-        importTransferData,
+        importTransferData: handleImportTransferData,
         addCategory,
         deleteCategory,
         addAccount,

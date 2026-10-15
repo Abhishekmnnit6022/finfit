@@ -155,18 +155,22 @@ class GeminiTransactionParser {
 
     // Infer category
     const lower = text.toLowerCase();
-    if (lower.includes('restaurant') || lower.includes('food') || lower.includes('cafe') || lower.includes('dining') || lower.includes('coffee') || lower.includes('pizza') || lower.includes('burger')) {
+    if (lower.includes('berghotel') || lower.includes('hotel') || lower.includes('resort') || lower.includes('motel') || lower.includes('lodge') || lower.includes('inn') || lower.includes('flight') || lower.includes('airline') || lower.includes('irctc') || lower.includes('train') || lower.includes('travel') || lower.includes('tour') || lower.includes('makemytrip') || lower.includes('agoda') || lower.includes('booking')) {
+      details.category = 'Travel';
+    } else if (lower.includes('restaurant') || lower.includes('food') || lower.includes('cafe') || lower.includes('dining') || lower.includes('coffee') || lower.includes('pizza') || lower.includes('burger') || lower.includes('green') || lower.includes('swiggy') || lower.includes('zomato')) {
       details.category = 'Food & Dining';
-    } else if (lower.includes('uber') || lower.includes('fuel') || lower.includes('petrol') || lower.includes('diesel') || lower.includes('taxi') || lower.includes('transport')) {
+    } else if (lower.includes('uber') || lower.includes('fuel') || lower.includes('petrol') || lower.includes('diesel') || lower.includes('taxi') || lower.includes('transport') || lower.includes('ola') || lower.includes('rapido') || lower.includes('toll')) {
       details.category = 'Transportation';
-    } else if (lower.includes('mart') || lower.includes('supermarket') || lower.includes('store') || lower.includes('retail') || lower.includes('cloth')) {
+    } else if (lower.includes('mart') || lower.includes('supermarket') || lower.includes('store') || lower.includes('retail') || lower.includes('cloth') || lower.includes('amazon') || lower.includes('flipkart') || lower.includes('dmart') || lower.includes('mall')) {
       details.category = 'Shopping';
-    } else if (lower.includes('cinema') || lower.includes('movie') || lower.includes('theater')) {
+    } else if (lower.includes('cinema') || lower.includes('movie') || lower.includes('theater') || lower.includes('pvr') || lower.includes('inox') || lower.includes('netflix') || lower.includes('spotify')) {
       details.category = 'Entertainment';
-    } else if (lower.includes('electric') || lower.includes('water') || lower.includes('bill') || lower.includes('gas') || lower.includes('internet')) {
+    } else if (lower.includes('electric') || lower.includes('water') || lower.includes('bill') || lower.includes('gas') || lower.includes('internet') || lower.includes('airtel') || lower.includes('jio') || lower.includes('recharge') || lower.includes('wifi')) {
       details.category = 'Bills & Utilities';
-    } else if (lower.includes('hospital') || lower.includes('pharmacy') || lower.includes('med') || lower.includes('clinic')) {
+    } else if (lower.includes('hospital') || lower.includes('pharmacy') || lower.includes('med') || lower.includes('clinic') || lower.includes('doctor') || lower.includes('gym') || lower.includes('fitness')) {
       details.category = 'Health & Fitness';
+    } else if (lower.includes('school') || lower.includes('college') || lower.includes('tuition') || lower.includes('course') || lower.includes('book') || lower.includes('exam')) {
+      details.category = 'Education';
     }
 
     // Infer notes: First non-empty line usually has the store/merchant name

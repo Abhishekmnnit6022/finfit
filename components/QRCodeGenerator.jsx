@@ -10,8 +10,12 @@ export function QRCodeGenerator() {
 
   useEffect(() => {
     const loadData = async () => {
-      const data = await generateTransferData();
-      setQrData(data);
+      try {
+        const data = await generateTransferData();
+        if (data) setQrData(data);
+      } catch (err) {
+        console.error('Error generating QR data in QRCodeGenerator:', err);
+      }
     };
     loadData();
   }, []);

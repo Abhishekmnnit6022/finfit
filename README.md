@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Abhishekmnnit6022/finfit/releases/download/v1.0.0/FinFit.apk">
+  <a href="https://github.com/Abhishekmnnit6022/finfit/releases/latest/download/FinFit.apk">
     <img src="https://img.shields.io/badge/Download-FinFit%20APK%20(v1.0.0)-2563EB?style=for-the-badge&logo=android&logoColor=white" alt="Download FinFit APK" />
   </a>
 </p>
@@ -26,19 +26,20 @@
 FinFit is a modern, privacy-focused personal finance tracking and budgeting application built with React Native and Expo. It empowers users to monitor expenses, manage budgets, track multi-currency balances, and gain actionable financial insights through automated analytics and AI-powered advisory.
 
 > [!TIP]
-> **Direct APK Download**: Tap or click here to directly download the compiled Android app: **[Download FinFit.apk (v1.0.0)](https://github.com/Abhishekmnnit6022/finfit/releases/download/v1.0.0/FinFit.apk)**.
+> **Direct APK Download**: Tap or click here to directly download the latest compiled Android app: **[Download FinFit.apk](https://github.com/Abhishekmnnit6022/finfit/releases/latest/download/FinFit.apk)** *(or via [v1.0.0 Release](https://github.com/Abhishekmnnit6022/finfit/releases/download/v1.0.0/FinFit.apk))*.
 
 ---
 
 ## Key Capabilities
 
-- **Local-First Architecture**: Financial records are stored securely on-device using SQLite and AsyncStorage, ensuring complete privacy and offline usability.
+- **Local-First Architecture**: Financial records are stored securely on-device using SQLite and AsyncStorage, ensuring complete privacy, zero mandatory external server dependencies, and full offline usability.
 - **AI Financial Advisor**: Provides tailored spending assessments and conversational financial mentorship powered by Google Gemini and xAI Grok, backed by an intelligent offline student advisory engine.
-- **OCR Receipt Scanning**: Fast automated expense entry using optical character recognition to extract total amounts and vendors directly from paper receipts or gallery images, with inline detail verification and editing before saving.
+- **OCR Receipt Scanning & Auto-Categorization**: Fast automated expense entry using optical character recognition to extract amounts, vendors, and intelligent category suggestions, with inline category confirmation and editing before saving.
 - **Deep-Linked UPI Payments**: Directly launches installed Indian UPI payment apps (Google Pay, PhonePe, Paytm, BHIM, CRED) for seamless payment execution while logging transactions.
 - **Live Multi-Currency Conversion**: Real-time cross-currency rates with multi-tier fallback tables, enabling users to log and view expenses across global currencies.
-- **Proactive Budget Alerts**: Automated notifications for categories exceeding 75%, 90%, and 100% of budgeted limits, featuring strict 3-hour cooldowns and single daily alerts to prevent notification fatigue.
-- **Data Export & Portability**: Generates branded financial reports (`FinFit_Expense_Report.pdf`, CSV, and JSON) for external auditing and backups.
+- **Proactive Budget Alerts & Utilization Tracking**: Real-time budget utilization analytics with automated notifications for categories exceeding 75%, 90%, and 100% of budgeted limits, featuring strict 3-hour cooldowns and single daily alerts to prevent notification fatigue.
+- **Peer-to-Peer Encrypted Data Transfer**: Device-to-device instant expense backup and restore via high-density encrypted QR codes without requiring external cloud accounts.
+- **Branded Data Export**: Generates professional, branded financial reports (`FinFit_Expense_Report.pdf` with embedded FinFit logo, CSV, and JSON) for auditing and record-keeping.
 - **Device-Level Security**: Biometric and PIN authentication via Expo Local Authentication (Fingerprint, Face ID, PIN).
 
 ---
@@ -54,30 +55,24 @@ FinFit is a modern, privacy-focused personal finance tracking and budgeting appl
 | **Receipt OCR** | OCR Space REST API |
 | **Currency Rates** | ExchangeRate-API (live pairs with offline fallback matrix) |
 | **Native Integrations** | Expo Notifications, Expo IntentLauncher, Expo LocalAuthentication |
-| **Internationalization** | i18next (English, Hindi, Tamil) |
+| **Internationalization** | i18next (English, Hindi, Tamil, Kannada, Marathi, Urdu) |
 
 ---
 
 ## Architecture Highlights
 
-### 1. Developer Remote Configuration
-FinFit integrates a silent remote configuration architecture. Production API keys (Gemini, Grok, OCR, Currency) can be updated via a developer-controlled GitHub Gist without requiring application re-compilation or APK redistribution. The client checks for updates asynchronously with a 2-minute cache cycle and falls back to bundled keys offline.
-
-### 2. Dual Floating Action System
-The dashboard incorporates dual floating action buttons:
-- **Calculator FAB**: Opens an inline expense calculator for manual calculations, category selection, and instant UPI checkout.
-- **Camera FAB**: Opens receipt image capture with direct OCR text extraction and automated field pre-filling with verification options.
-
-### 3. Fail-Safe Offline Advisory Engine
-If third-party LLM providers encounter rate limits or network unavailability, the built-in financial analysis engine automatically evaluates the user's recent cash flow, category concentration, and savings rates to deliver structured, bulleted advice without throwing unhandled exceptions.
+### Fail-Safe Financial Advisory Engine
+FinFit features a resilient dual-layer intelligence system for personal financial guidance:
+- **Cloud AI (Primary)**: Generates conversational, contextual spending assessments and budget suggestions powered by Google Gemini and xAI Grok.
+- **On-Device Fallback (Offline)**: If network connectivity is unavailable, API rate limits are reached, or cloud services are unreachable, the embedded financial analysis engine automatically evaluates recent cash flows, category concentration ratios, and savings trends to deliver structured, actionable advice completely on-device without interruptions.
 
 ---
 
 ## Development Workflows: Expo vs Build Mode
 
-FinFit supports both rapid development via the managed **Expo Development Mode** and full offline standalone APK compilation via **Build Mode**.
+FinFit seamlessly supports two development workflows: rapid cross-platform iteration using **Expo Development Mode** and production packaging via **Standalone Build Mode**.
 
-### 🟢 Mode 1: Expo Development Mode (Default)
+### 🟢 Mode 1: Expo Development Mode (Rapid Iteration)
 Use this mode for rapid UI development, feature iteration, and cross-platform testing with instant Hot Module Reloading (HMR).
 
 1. **Install dependencies**:
@@ -98,8 +93,8 @@ Use this mode for rapid UI development, feature iteration, and cross-platform te
 
 ---
 
-### 🔨 Mode 2: Switching to Standalone Build Mode (Building APK)
-When you are ready to compile a standalone, optimized release APK (`FinFit.apk`) without requiring Expo Go:
+### 🔨 Mode 2: Standalone Build Mode (Building APK)
+When you are ready to compile a standalone, optimized release APK (`FinFit.apk` ~35.9 MB) without requiring Expo Go:
 
 1. **Generate native Android project configuration**:
    ```bash
@@ -133,12 +128,12 @@ When you are ready to compile a standalone, optimized release APK (`FinFit.apk`)
 
 4. **Install APK directly onto a connected phone via ADB**:
    ```bash
-   adb install -r android/app/build/outputs/apk/release/app-release.apk
+   adb install -r -d FinFit.apk
    ```
 
 ---
 
-### 🔄 Mode 3: Switching Back to Expo Development Mode from Build Mode
+### 🔄 Mode 3: Switching Back to Expo Development Mode
 After building your APK, return to the clean Expo managed workflow:
 
 1. **Remove the generated native `android` folder**:
@@ -180,7 +175,7 @@ finfit/
 │   ├── aiService.js            # Multi-provider LLM connector & student engine
 │   ├── remoteConfig.js         # Remote key synchronization
 │   ├── currencyService.js      # Multi-tier currency exchange engine
-│   └── language/               # Translation dictionaries (EN, HI, TM)
+│   └── language/               # Translation dictionaries (EN, HI, TM, KN, MR, UR)
 ├── assets/                     # App icons, splash screens, and images
 └── app.json                    # Expo project configuration
 ```
@@ -189,7 +184,7 @@ finfit/
 
 ## Core Contributors
 
-**Team Auxin**
+**FinFit Project Contributors**
 
 - **Abhishek Rastogi** — [@Abhishekmnnit6022](https://github.com/Abhishekmnnit6022)
 - **Harshit Kumar Jayaswal** — [@kharshit801](https://github.com/kharshit801)

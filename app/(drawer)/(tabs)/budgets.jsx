@@ -30,7 +30,7 @@ import {
 const BUDGETS_STORAGE_KEY = "APP_BUDGETS";
 
 const BudgetsScreen = () => {
-  const { state, fetchSpentByCategory, convertAmount, addCategory, deleteCategory } = useGlobalContext();
+  const { state, fetchSpentByCategory, convertAmount, addCategory, deleteCategory, updateBudget } = useGlobalContext();
   const { t, i18n } = useTranslation();
   const [modalVisible, setModalVisible] = useState(false);
   const [addCategoryModalVisible, setAddCategoryModalVisible] = useState(false);
@@ -123,6 +123,9 @@ const BudgetsScreen = () => {
         });
 
         setBudgets(initializedBudgets);
+        if (updateBudget) {
+          updateBudget(initializedBudgets);
+        }
         
         if (!savedBudgets || savedBudgets.length === 0) {
           await saveBudgetsToStorage(initializedBudgets);
@@ -146,17 +149,24 @@ const BudgetsScreen = () => {
     }
   }, [state.language]);
 
+  const checkTimeoutRef = React.useRef(null);
   useEffect(() => {
-    const requestPermissionsAndCheckBudgets = async () => {
+    if (checkTimeoutRef.current) {
+      clearTimeout(checkTimeoutRef.current);
+    }
+
+    checkTimeoutRef.current = setTimeout(async () => {
       const permissionsGranted = await requestNotificationPermissions();
       if (permissionsGranted && !isLoading && budgets?.length > 0 && Object.keys(spentByCategory || {}).length > 0) {
         checkBudgetThresholds(budgets, spentByCategory);
       }
-    };
+    }, 600);
 
-    if (!isLoading && budgets?.length > 0) {
-      requestPermissionsAndCheckBudgets();
-    }
+    return () => {
+      if (checkTimeoutRef.current) {
+        clearTimeout(checkTimeoutRef.current);
+      }
+    };
   }, [budgets, spentByCategory, isLoading, checkBudgetThresholds, requestNotificationPermissions]);
 
   useEffect(() => {
@@ -206,6 +216,9 @@ const BudgetsScreen = () => {
       
       setBudgets(updatedBudgets);
       await saveBudgetsToStorage(updatedBudgets);
+      if (updateBudget) {
+        updateBudget(updatedBudgets);
+      }
       sendBudgetNotification(updatedBudget, spentByCategory);
 
       setModalVisible(false);
@@ -325,12 +338,13 @@ const BudgetsScreen = () => {
               <View style={styles.cardActionsRow}>
                 <TouchableOpacity
                   style={styles.editButton}
+                  activeOpacity={0.7}
                   onPress={() => openEditModal(budget)}
                 >
                   <Ionicons
                     name="pencil"
                     size={wp("4%")}
-                    color={COLORS.primary}
+                    color="#FFFFFF"
                   />
                   <Text style={styles.editButtonText}>{t("Edit") || "Edit"}</Text>
                 </TouchableOpacity>

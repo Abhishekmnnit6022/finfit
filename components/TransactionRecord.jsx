@@ -8,26 +8,39 @@ import {
   heightPercentageToDP as hp
 } from 'react-native-responsive-screen';
 import { format, parseISO, isValid } from 'date-fns';
+import { hi, ta, kn } from 'date-fns/locale';
+import { useTranslation } from 'react-i18next';
 import { useGlobalContext } from './globalProvider';
 import { currencies } from '../utils/currencyService';
 
 const TransactionRecord = React.memo(({ transaction, onEdit }) => {
   const { deleteExpense, loadExpensesFromDB, state } = useGlobalContext();
+  const { t, i18n } = useTranslation();
 
-  // Format date - memoized
+  const getDateLocale = () => {
+    const lang = (i18n.language || state.language || '').toLowerCase();
+    if (lang.includes('hi') || lang.includes('hn')) return hi;
+    if (lang.includes('ta') || lang.includes('tm')) return ta;
+    if (lang.includes('kn') || lang.includes('kannada')) return kn;
+    return undefined;
+  };
+
+  // Format date - memoized with locale
   const formattedDate = useMemo(() => {
     try {
-      if (!transaction?.date) return 'No date';
+      if (!transaction?.date) return t('No date') || 'No date';
       
       const date = typeof transaction.date === 'string' 
         ? parseISO(transaction.date) 
         : transaction.date;
 
-      return isValid(date) ? format(date, 'MMM dd, yyyy hh:mm a') : 'Invalid date';
+      return isValid(date) 
+        ? format(date, 'MMM dd, yyyy hh:mm a', { locale: getDateLocale() }) 
+        : t('Invalid date') || 'Invalid date';
     } catch (error) {
-      return 'Invalid date';
+      return t('Invalid date') || 'Invalid date';
     }
-  }, [transaction?.date]);
+  }, [transaction?.date, i18n.language, state.language]);
 
   // Format amount - memoized with specific dependencies
   const formattedAmount = useMemo(() => {
@@ -59,25 +72,25 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
     e.stopPropagation();
     
     Alert.alert(
-      "Delete Transaction",
-      "Are you sure you want to delete this transaction?",
+      t("Delete Transaction") || "Delete Transaction",
+      t("Are you sure you want to delete this transaction?") || "Are you sure you want to delete this transaction?",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel") || "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: t("Delete") || "Delete",
           onPress: async () => {
             try {
               await deleteExpense(transaction.id);
               await loadExpensesFromDB();
             } catch (error) {
-              Alert.alert("Error", "Failed to delete transaction.");
+              Alert.alert(t("Error") || "Error", t("Failed to delete transaction.") || "Failed to delete transaction.");
             }
           },
           style: "destructive"
         }
       ]
     );
-  }, [transaction?.id, deleteExpense, loadExpensesFromDB]);
+  }, [transaction?.id, deleteExpense, loadExpensesFromDB, t]);
 
   const handleEdit = useCallback(() => {
     if (onEdit) onEdit(transaction);
@@ -86,6 +99,11 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
   if (!transaction?.id) {
     return null;
   }
+
+  // Translated category, account and note
+  const displayCategory = t(transaction.category) || transaction.category || t('Uncategorized') || 'Uncategorized';
+  const displayAccount = t(transaction.account) || transaction.account || t('No account') || 'No account';
+  const displayNote = transaction.note?.trim() || t('No note') || 'No note';
 
   return (
     <TouchableOpacity
@@ -96,7 +114,7 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
       <View style={styles.mainContent}>
         <View style={styles.leftContent}>
           <Text style={styles.category}>
-            {transaction.category || 'Uncategorized'}
+            {displayCategory}
           </Text>
         </View>
         <Text
@@ -110,13 +128,13 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
       </View>
 
       <Text style={styles.note}>
-        {transaction.note?.trim() || 'No note'}
+        {displayNote}
       </Text>
 
       <View style={styles.bottomRow}>
         <View style={styles.leftInfo}>
           <Text style={styles.account}>
-            {transaction.account || 'No account'}
+            {displayAccount}
           </Text>
           <Text style={styles.dot}>•</Text>
           <Text style={styles.date}>{formattedDate}</Text>
@@ -135,15 +153,6 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison for memo
-  return (
-    prevProps.transaction?.id === nextProps.transaction?.id &&
-    prevProps.transaction?.amount === nextProps.transaction?.amount &&
-    prevProps.transaction?.category === nextProps.transaction?.category &&
-    prevProps.transaction?.date === nextProps.transaction?.date &&
-    prevProps.transaction?.note === nextProps.transaction?.note
   );
 });
 

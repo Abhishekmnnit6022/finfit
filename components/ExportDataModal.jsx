@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import { COLORS } from '../constants/theme';
 import { exportService } from '../utils/exportService';
@@ -11,8 +11,13 @@ const ExportDataModal = ({ visible, onClose }) => {
 
   const handleExport = async (format) => {
     try {
+      const transactions = state?.transactions || [];
+      if (!transactions || transactions.length === 0) {
+        Alert.alert('No Transactions', 'You do not have any transactions to export yet. Please log some expenses first!');
+        return;
+      }
+
       setIsExporting(true);
-      const transactions = state.transactions;
       
       switch (format) {
         case 'pdf':
@@ -29,7 +34,7 @@ const ExportDataModal = ({ visible, onClose }) => {
       onClose();
     } catch (error) {
       console.error('Export error:', error);
-      Alert.alert('Export Failed', 'There was an error exporting your data. Please try again.');
+      Alert.alert('Export Failed', error?.message || 'There was an error exporting your data. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -46,6 +51,7 @@ const ExportDataModal = ({ visible, onClose }) => {
       visible={visible}
       transparent={true}
       animationType="slide"
+      onRequestClose={onClose}
     >
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>

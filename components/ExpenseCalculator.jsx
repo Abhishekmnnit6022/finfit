@@ -116,7 +116,7 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
   const [note, setNote] = useState(initialData?.note || '');
   const [account, setAccount] = useState(initialData?.account || '');
   const [category, setCategory] = useState(initialData?.category || '');
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(Boolean(initialData?.openCategoryPicker));
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showUPIAppsModal, setShowUPIAppsModal] = useState(false);
@@ -179,6 +179,7 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
   
       // Sync category, account, and note from initialData (e.g. from OCR or edit)
       if (initialData.category) setCategory(initialData.category);
+      if (initialData.openCategoryPicker) setShowCategoryModal(true);
       if (initialData.account) setAccount(initialData.account);
       if (initialData.note !== undefined) setNote(initialData.note);
       if (initialData.type) setType(initialData.type);

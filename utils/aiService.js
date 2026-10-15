@@ -102,7 +102,7 @@ async function runAiChat(messages, { temperature = 0.4 } = {}) {
         }
     }
 
-    // Return null instead of throwing, so the smart student financial advisor engine takes over gracefully
+    // Return null so the local student financial advisor engine takes over seamlessly
     return null;
 }
 
@@ -127,25 +127,59 @@ const formatWithLineBreaks = (text) => {
 };
 
 /**
+ * Normalizes financial summary and transactions to guarantee exact calculations.
+ * Always computes directly from transactions if summary figures are missing or zero.
+ */
+function normalizeFinancialData(summary = {}, transactions = []) {
+    const txList = Array.isArray(transactions) ? transactions : [];
+
+    let computedExpense = 0;
+    let computedIncome = 0;
+    const catTotals = {};
+
+    txList.forEach(t => {
+        const amt = parseFloat(t.amount || 0);
+        const type = (t.type || '').toUpperCase();
+        if (type === 'INCOME') {
+            computedIncome += amt;
+        } else {
+            // Default to EXPENSE
+            computedExpense += amt;
+            const cat = t.category || 'General';
+            catTotals[cat] = (catTotals[cat] || 0) + amt;
+        }
+    });
+
+    const rawExpense = summary?.expense ?? summary?.totalExpense;
+    const rawIncome = summary?.income ?? summary?.totalIncome;
+    const rawBalance = summary?.total ?? summary?.balance;
+
+    const parsedExpense = parseFloat(rawExpense);
+    const parsedIncome = parseFloat(rawIncome);
+    const parsedBalance = parseFloat(rawBalance);
+
+    const totalExpense = !isNaN(parsedExpense) && parsedExpense > 0 ? parsedExpense : computedExpense;
+    const totalIncome = !isNaN(parsedIncome) && parsedIncome > 0 ? parsedIncome : computedIncome;
+    const balance = !isNaN(parsedBalance) ? parsedBalance : (totalIncome - totalExpense);
+
+    return {
+        totalExpense,
+        totalIncome,
+        balance,
+        expense: totalExpense,
+        income: totalIncome,
+        total: balance,
+        catTotals,
+        txList
+    };
+}
+
+/**
  * Intelligent Local Financial Analysis Engine for Indian College Students.
  * Generates actionable, data-driven financial advice from real user numbers.
  */
 function generateLocalStudentAnalysis(summary = {}, transactions = []) {
-    const totalIncome = parseFloat(summary?.totalIncome || 0);
-    const totalExpense = parseFloat(summary?.totalExpense || 0);
-    const balance = parseFloat(summary?.balance || (totalIncome - totalExpense));
-
-    // Category spending aggregation
-    const catTotals = {};
-    if (Array.isArray(transactions)) {
-        transactions.forEach(t => {
-            if (t.type === 'EXPENSE' || !t.type) {
-                const cat = t.category || 'General';
-                const amt = parseFloat(t.amount || 0);
-                catTotals[cat] = (catTotals[cat] || 0) + amt;
-            }
-        });
-    }
+    const { totalExpense, totalIncome, balance, catTotals, txList } = normalizeFinancialData(summary, transactions);
 
     // Find top spending category
     let topCat = 'General';
@@ -162,7 +196,7 @@ function generateLocalStudentAnalysis(summary = {}, transactions = []) {
 
     const lines = [
         '💸 Overall spending patterns',
-        `• Total logged expenses: ₹${totalExpense.toFixed(0)} across ${transactions.length || 0} transactions.`,
+        `• Total logged expenses: ₹${totalExpense.toFixed(0)} across ${txList.length} transactions.`,
         topCatAmount > 0 
             ? `• Your highest spending area is ${topCat} (₹${topCatAmount.toFixed(0)}, ~${topCatPercent}% of total expenses).` 
             : `• Keep logging daily canteen, transit, and study expenses to spot patterns.`,
@@ -195,9 +229,59 @@ function generateLocalStudentAnalysis(summary = {}, transactions = []) {
  */
 function generateLocalChatResponse(message = '', summary = {}, transactions = []) {
     const lower = (message || '').toLowerCase();
-    const totalIncome = parseFloat(summary?.totalIncome || 0);
-    const totalExpense = parseFloat(summary?.totalExpense || 0);
-    const balance = parseFloat(summary?.balance || 0);
+    const { totalExpense, totalIncome, balance, catTotals, txList } = normalizeFinancialData(summary, transactions);
+
+    // 1. Expense Breakdown / Query (e.g., "tell me about my expense", "my expenses", "how much did i spend")
+    if (
+        lower.includes('expense') ||
+        lower.includes('expnse') ||
+        lower.includes('spend') ||
+        lower.includes('spent') ||
+        lower.includes('cost') ||
+        lower.includes('paid') ||
+        lower.includes('kharcha') ||
+        lower.includes('how much')
+    ) {
+        const topCategories = Object.entries(catTotals)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4);
+
+        const categoryBreakdownLines = topCategories.length > 0
+            ? topCategories.map(([cat, amt]) => {
+                const pct = totalExpense > 0 ? Math.round((amt / totalExpense) * 100) : 0;
+                return `  - ${cat}: ₹${amt.toFixed(0)} (${pct}%)`;
+              })
+            : ['  - No categorized expenses yet'];
+
+        const recentExpenses = txList
+            .filter(t => (t.type || '').toUpperCase() === 'EXPENSE' || !t.type)
+            .slice(0, 3)
+            .map(t => {
+                let dateFormatted = 'Recent';
+                try {
+                    if (t.date) {
+                        dateFormatted = new Date(t.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+                    }
+                } catch (e) {}
+                return `  - ${t.category || 'Expense'}: ₹${parseFloat(t.amount || 0).toFixed(0)} (${dateFormatted})`;
+            });
+
+        return [
+            '💳 Expense Breakdown & Summary 📊',
+            '',
+            `• Total Logged Expenses: ₹${totalExpense.toFixed(0)} across ${txList.length} transactions.`,
+            `• Current Balance: ₹${balance.toFixed(0)} (Total Income: ₹${totalIncome.toFixed(0)})`,
+            '',
+            '🏷️ Top Spending Categories:',
+            ...categoryBreakdownLines,
+            ...(recentExpenses.length > 0 ? ['', '🕒 Recent Expenses Logged:', ...recentExpenses] : []),
+            '',
+            '💡 Financial Tip:',
+            totalExpense > totalIncome && totalIncome > 0
+                ? '• Notice: Your expenses currently exceed your income. Try pausing non-essential online orders.'
+                : '• Keep logging every transaction immediately to maintain 100% financial clarity!'
+        ].join('\n');
+    }
 
     if (lower.includes('save') || lower.includes('saving')) {
         return [
@@ -219,7 +303,7 @@ function generateLocalChatResponse(message = '', summary = {}, transactions = []
             '',
             '• Step 1: Divide your monthly allowance into 4 equal weekly buckets.',
             '• Step 2: Pay essentials first (recharges, room dues, books) at the start of the month.',
-            '• Step 3: Never roll over overspending into the next week—if you spend extra this week, tighten the belt for the remaining 3 days.',
+            '• Step 3: Never roll over overspending into the next week—if you spend extra this week, tighten the belt for the remaining days.',
             '',
             `• Current Status: You have logged ₹${totalExpense.toFixed(0)} in expenses with ₹${balance.toFixed(0)} balance remaining.`
         ].join('\n');
@@ -251,7 +335,7 @@ function generateLocalChatResponse(message = '', summary = {}, transactions = []
         '🎓 FinFit Student Advisor 💬',
         '',
         '• Based on your financial records:',
-        `  - Total Logged Expenses: ₹${totalExpense.toFixed(0)}`,
+        `  - Total Logged Expenses: ₹${totalExpense.toFixed(0)} across ${txList.length} transactions`,
         `  - Total Logged Income: ₹${totalIncome.toFixed(0)}`,
         `  - Current Balance: ₹${balance.toFixed(0)}`,
         '',
@@ -259,15 +343,24 @@ function generateLocalChatResponse(message = '', summary = {}, transactions = []
         '  - Track every expense right when you pay to maintain clear financial vision.',
         '  - Keep discretionary spends under control during the middle of the month.',
         '',
-        'Feel free to ask me: "How to save money?", "Help me budget for this week", or "How to cut food expenses"!'
+        'Feel free to ask me: "Tell me about my expenses", "How to save money?", "Help me budget for this week", or "How to cut food expenses"!'
     ].join('\n');
 }
 
 const getInitialAnalysis = async (summary, transactions) => {
+    const data = normalizeFinancialData(summary, transactions);
+    const summaryContext = {
+        totalExpense: data.totalExpense,
+        totalIncome: data.totalIncome,
+        balance: data.balance,
+        transactionCount: data.txList.length,
+        categoryBreakdown: data.catTotals
+    };
+
     const analysisPrompt = `As a financial advisor for Indian college students, analyze this financial data and provide a brief initial assessment. Use pointers and emojis to make it easy to read:
 
-Summary: ${JSON.stringify(summary)}
-Transactions: ${JSON.stringify(transactions)}
+Summary: ${JSON.stringify(summaryContext)}
+Recent Transactions: ${JSON.stringify(data.txList.slice(0, 15))}
 
 Provide a concise analysis covering:
 1. Overall spending patterns 💸
@@ -295,10 +388,19 @@ Keep it friendly and focused on the student context.`;
 };
 
 const chatWithAI = async (message, summary, transactions) => {
+    const data = normalizeFinancialData(summary, transactions);
+    const summaryContext = {
+        totalExpense: data.totalExpense,
+        totalIncome: data.totalIncome,
+        balance: data.balance,
+        transactionCount: data.txList.length,
+        categoryBreakdown: data.catTotals
+    };
+
     const contextPrompt = `You are a financial advisor for Indian college students. Here is the current financial context. Respond using pointers and emojis for clarity:
 
-Summary: ${JSON.stringify(summary)}
-Transactions: ${JSON.stringify(transactions)}
+Summary: ${JSON.stringify(summaryContext)}
+Recent Transactions: ${JSON.stringify(data.txList.slice(0, 20))}
 
 Consider these student-specific factors when giving advice:
 1. Monthly budget constraints with limited pocket money/part-time income

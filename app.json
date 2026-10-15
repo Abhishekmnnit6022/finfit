@@ -45,7 +45,8 @@
       },
       "permissions": [
         "QUERY_ALL_PACKAGES",
-        "android.permission.USE_FINGERPRINT"
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.USE_BIOMETRIC"
       ],
       "queries": {
         "packages": [
