@@ -6,12 +6,20 @@ import * as SQLite from "expo-sqlite";
 import { format, addMonths, subMonths } from "date-fns";
 import i18next from "i18next";
 import * as FileSystem from "expo-file-system";
+import remoteConfig from "../utils/remoteConfig";
+import {
+  convertAmount as convertCurrencyAmount,
+  DEFAULT_RATES,
+  getDefaultCurrency as getStoredDefaultCurrency,
+  setDefaultCurrency as setStoredDefaultCurrency,
+  fetchExchangeRates as fetchServiceExchangeRates,
+  loadExchangeRates as loadServiceExchangeRates,
+} from "../utils/currencyService";
 
 const STORAGE_KEY = "APP_STATE";
 const BUDGETS_STORAGE_KEY = "APP_BUDGETS";
 const CATEGORY_BUDGETS_KEY = "CATEGORY_BUDGETS";
 const EXCHANGE_RATES_KEY = "EXCHANGE_RATES";
-const API_KEY = "";
 
 const initialState = {
   transactions: [],
@@ -34,6 +42,13 @@ const initialState = {
       "Other",
     ],
   },
+  accounts: [
+    "Credit Card",
+    "Cash",
+    "Savings",
+    "Bank Account",
+    "Investment",
+  ],
   budgets: [],
   categoryBudgets: {},
   summary: {
@@ -204,7 +219,7 @@ const initialState = {
     ZMW: { symbol: "ZK", name: "Zambian Kwacha" },
     ZWL: { symbol: "$", name: "Zimbabwean Dollar" },
   },
-  exchangeRates: {},
+  exchangeRates: DEFAULT_RATES,
   lastRatesUpdate: null,
 };
 
@@ -367,8 +382,20 @@ const globalReducer = (state, action) => {
         summary: initialState.summary,
       };
 
-    case "LOAD_STATE":
-      return action.payload || initialState;
+    case "LOAD_STATE": {
+      if (!action.payload) return initialState;
+      const loaded = action.payload;
+      return {
+        ...initialState,
+        ...loaded,
+        categories: {
+          EXPENSE: Array.from(new Set([...(initialState.categories.EXPENSE || []), ...(loaded.categories?.EXPENSE || [])])),
+          INCOME: Array.from(new Set([...(initialState.categories.INCOME || []), ...(loaded.categories?.INCOME || [])])),
+          TRANSFER: Array.from(new Set([...(initialState.categories.TRANSFER || []), ...(loaded.categories?.TRANSFER || [])])),
+        },
+        accounts: Array.from(new Set([...(initialState.accounts || []), ...(loaded.accounts || [])])),
+      };
+    }
 
     case "SET_MONTH":
       return {
@@ -474,6 +501,11 @@ const globalReducer = (state, action) => {
       return {
         ...state,
         defaultCurrency: action.payload,
+        summary: calculateSummaryWithCurrency(
+          state.transactions,
+          action.payload,
+          state.exchangeRates
+        ),
       };
 
     case "UPDATE_EXCHANGE_RATES":
@@ -481,6 +513,11 @@ const globalReducer = (state, action) => {
         ...state,
         exchangeRates: action.payload.rates,
         lastRatesUpdate: new Date().toISOString(),
+        summary: calculateSummaryWithCurrency(
+          state.transactions,
+          state.defaultCurrency,
+          action.payload.rates
+        ),
       };
 
     case "LOAD_EXPENSES":
@@ -494,6 +531,48 @@ const globalReducer = (state, action) => {
         ),
       };
 
+    case "ADD_CATEGORY": {
+      const { type, category } = action.payload;
+      const currentList = state.categories[type] || [];
+      if (currentList.includes(category)) return state;
+      return {
+        ...state,
+        categories: {
+          ...state.categories,
+          [type]: [...currentList, category],
+        },
+      };
+    }
+
+    case "DELETE_CATEGORY": {
+      const { type, category } = action.payload;
+      return {
+        ...state,
+        categories: {
+          ...state.categories,
+          [type]: (state.categories[type] || []).filter((c) => c !== category),
+        },
+      };
+    }
+
+    case "ADD_ACCOUNT": {
+      const accountName = action.payload;
+      const currentAccounts = state.accounts || [];
+      if (currentAccounts.includes(accountName)) return state;
+      return {
+        ...state,
+        accounts: [...currentAccounts, accountName],
+      };
+    }
+
+    case "DELETE_ACCOUNT": {
+      const accountName = action.payload;
+      return {
+        ...state,
+        accounts: (state.accounts || []).filter((a) => a !== accountName),
+      };
+    }
+
     default:
       return state;
   }
@@ -504,18 +583,15 @@ const calculateSummaryWithCurrency = (
   targetCurrency,
   exchangeRates
 ) => {
-  const convertAmount = (amount, fromCurrency, targetCurrency) => {
-    if (fromCurrency === targetCurrency) return amount;
-    const rate = exchangeRates[`${fromCurrency}_${targetCurrency}`] || 1;
-    return amount * rate;
-  };
-
-  const summary = transactions.reduce(
+  const target = targetCurrency || "INR";
+  const summary = (transactions || []).reduce(
     (acc, transaction) => {
-      const convertedAmount = convertAmount(
-        transaction.amount,
-        transaction.currency,
-        targetCurrency
+      const rawAmount = parseFloat(transaction.amount) || 0;
+      const convertedAmount = convertCurrencyAmount(
+        rawAmount,
+        transaction.currency || target,
+        target,
+        exchangeRates
       );
 
       if (transaction.type === "EXPENSE") {
@@ -616,7 +692,7 @@ export const GlobalProvider = ({ children }) => {
                     COALESCE(account, '') as account,
                     COALESCE(note, '') as note,
                     COALESCE(date, CURRENT_TIMESTAMP) as date,
-                    COALESCE(currency, 'USD') as currency
+                    COALESCE(currency, '${state.defaultCurrency || "INR"}') as currency
                 FROM expenses
                 ORDER BY date DESC
             `;
@@ -632,7 +708,7 @@ export const GlobalProvider = ({ children }) => {
         account: expense.account || "",
         note: expense.note || "",
         date: expense.date || new Date().toISOString(),
-        currency: expense.currency || "USD",
+        currency: expense.currency || state.defaultCurrency || "INR",
       }));
     } catch (error) {
       console.error("Error fetching expenses:", error);
@@ -657,7 +733,7 @@ export const GlobalProvider = ({ children }) => {
           expense.account || "",
           expense.note || "",
           expense.date || new Date().toISOString(),
-          expense.currency || "USD",
+          expense.currency || state.defaultCurrency || "INR",
         ]
       );
 
@@ -685,7 +761,7 @@ export const GlobalProvider = ({ children }) => {
           expense.account || "",
           expense.note || "",
           expense.date || new Date().toISOString(),
-          expense.currency || "USD",
+          expense.currency || state.defaultCurrency || "INR",
           expense.id,
         ]
       );
@@ -748,13 +824,27 @@ export const GlobalProvider = ({ children }) => {
   const onSave = async (transactionData) => {
     try {
       if (transactionData.id && transactionData.isUpdate) {
-        await updateExpense({
+        const updateResult = await updateExpense({
           ...transactionData,
           amount: parseFloat(transactionData.amount),
           date: transactionData.date
             ? new Date(transactionData.date).toISOString()
             : new Date().toISOString(),
         });
+        if (!updateResult || updateResult.changes === 0) {
+          console.warn("Expense to update not found in DB, inserting as new instead:", transactionData.id);
+          await addExpense({
+            amount: parseFloat(transactionData.amount),
+            type: transactionData.type,
+            category: transactionData.category,
+            account: transactionData.account,
+            note: transactionData.note,
+            date: transactionData.date
+              ? new Date(transactionData.date).toISOString()
+              : new Date().toISOString(),
+            currency: transactionData.currency || state.defaultCurrency,
+          });
+        }
       } else {
         await addExpense({
           amount: parseFloat(transactionData.amount),
@@ -805,6 +895,34 @@ export const GlobalProvider = ({ children }) => {
     });
   };
 
+  const addCategory = (type, category) => {
+    dispatch({
+      type: "ADD_CATEGORY",
+      payload: { type, category },
+    });
+  };
+
+  const deleteCategory = (type, category) => {
+    dispatch({
+      type: "DELETE_CATEGORY",
+      payload: { type, category },
+    });
+  };
+
+  const addAccount = (accountName) => {
+    dispatch({
+      type: "ADD_ACCOUNT",
+      payload: accountName,
+    });
+  };
+
+  const deleteAccount = (accountName) => {
+    dispatch({
+      type: "DELETE_ACCOUNT",
+      payload: accountName,
+    });
+  };
+
   const loadInitialState = async () => {
     try {
       const savedState = await AsyncStorage.getItem(STORAGE_KEY);
@@ -814,10 +932,14 @@ export const GlobalProvider = ({ children }) => {
 
       const savedLanguage = await AsyncStorage.getItem("APP_LANGUAGE");
       if (savedLanguage) {
-        dispatch({ type: "SET_LANGUAGE", payload: savedLanguage });
-        console.log("Loaded saved language:", savedLanguage);
+        let lang = savedLanguage;
+        if (lang === "en") lang = "English";
+        else if (lang === "hi" || lang === "hn") lang = "Hindi";
+        else if (lang === "ta" || lang === "tm") lang = "Tamil";
+        dispatch({ type: "SET_LANGUAGE", payload: lang });
+        console.log("Loaded saved language:", lang);
       } else {
-        dispatch({ type: "SET_LANGUAGE", payload: "en" });
+        dispatch({ type: "SET_LANGUAGE", payload: "English" });
       }
     } catch (error) {
       console.error("Error loading initial state:", error);
@@ -882,17 +1004,28 @@ export const GlobalProvider = ({ children }) => {
       const query = `
                 SELECT 
                     COALESCE(category, 'Other') as category,
-                    COALESCE(SUM(amount), 0) as totalSpent 
+                    COALESCE(amount, 0) as amount,
+                    COALESCE(currency, 'INR') as currency
                 FROM expenses 
-                WHERE type = 'EXPENSE' 
-                GROUP BY category
+                WHERE type = 'EXPENSE'
             `;
 
       const results = await db.getAllAsync(query);
+      const categoryMap = {};
+      (results || []).forEach((row) => {
+        const cat = row.category || "Other";
+        const converted = convertCurrencyAmount(
+          parseFloat(row.amount) || 0,
+          row.currency || state.defaultCurrency || "INR",
+          state.defaultCurrency || "INR",
+          state.exchangeRates
+        );
+        categoryMap[cat] = (categoryMap[cat] || 0) + converted;
+      });
 
-      return results.map((result) => ({
-        category: result.category || "Other",
-        totalSpent: parseFloat(result.totalSpent) || 0,
+      return Object.keys(categoryMap).map((category) => ({
+        category,
+        totalSpent: categoryMap[category],
       }));
     } catch (error) {
       console.error("Error fetching spent by category:", error);
@@ -902,72 +1035,57 @@ export const GlobalProvider = ({ children }) => {
 
   const fetchExchangeRates = async () => {
     try {
-      const response = await fetch(
-        `https://v6.exchangerate-api.com/v6/${API_KEY}/latest/USD`
-      );
-      const data = await response.json();
-
-      const formattedRates = {};
-      Object.keys(data.rates).forEach((toCurrency) => {
-        Object.keys(data.rates).forEach((fromCurrency) => {
-          const key = `${fromCurrency}_${toCurrency}`;
-          formattedRates[key] =
-            data.rates[toCurrency] / data.rates[fromCurrency];
+      const formattedRates = await fetchServiceExchangeRates();
+      if (formattedRates) {
+        dispatch({
+          type: "UPDATE_EXCHANGE_RATES",
+          payload: { rates: formattedRates },
         });
-      });
-
-      dispatch({
-        type: "UPDATE_EXCHANGE_RATES",
-        payload: { rates: formattedRates },
-      });
-
-      await AsyncStorage.setItem(
-        EXCHANGE_RATES_KEY,
-        JSON.stringify({
-          rates: formattedRates,
-          timestamp: new Date().toISOString(),
-        })
-      );
+      }
     } catch (error) {
-      console.error("Error fetching exchange rates:", error);
+      console.warn("Using local default exchange rates:", error.message);
     }
   };
 
   useEffect(() => {
-    const loadSavedRates = async () => {
+    const loadSavedRatesAndCurrency = async () => {
       try {
-        const savedRates = await AsyncStorage.getItem(EXCHANGE_RATES_KEY);
-        if (savedRates) {
-          const { rates, timestamp } = JSON.parse(savedRates);
-          const lastUpdate = new Date(timestamp);
-          const now = new Date();
+        // 1. Load saved default currency
+        const savedCurrency = await getStoredDefaultCurrency();
+        if (savedCurrency) {
+          dispatch({
+            type: "SET_DEFAULT_CURRENCY",
+            payload: savedCurrency,
+          });
+        }
 
-          if (now - lastUpdate > 24 * 60 * 60 * 1000) {
-            await fetchExchangeRates();
-          } else {
-            dispatch({
-              type: "UPDATE_EXCHANGE_RATES",
-              payload: { rates },
-            });
-          }
-        } else {
-          await fetchExchangeRates();
+        // 2. Load exchange rates
+        const rates = await loadServiceExchangeRates();
+        if (rates) {
+          dispatch({
+            type: "UPDATE_EXCHANGE_RATES",
+            payload: { rates },
+          });
         }
       } catch (error) {
-        console.error("Error loading exchange rates:", error);
+        console.error("Error loading exchange rates and currency:", error);
       }
     };
 
-    loadSavedRates();
+    loadSavedRatesAndCurrency();
   }, []);
 
   const convertAmount = (amount, fromCurrency, targetCurrency) => {
-    if (fromCurrency === targetCurrency) return amount;
-    const rate = state.exchangeRates[`${fromCurrency}_${targetCurrency}`] || 1;
-    return amount * rate;
+    return convertCurrencyAmount(
+      amount,
+      fromCurrency || state.defaultCurrency || "INR",
+      targetCurrency || state.defaultCurrency || "INR",
+      state.exchangeRates
+    );
   };
 
-  const setDefaultCurrency = (currency) => {
+  const setDefaultCurrency = async (currency) => {
+    await setStoredDefaultCurrency(currency);
     dispatch({
       type: "SET_DEFAULT_CURRENCY",
       payload: currency,
@@ -1000,6 +1118,11 @@ export const GlobalProvider = ({ children }) => {
         setDefaultCurrency,
         generateTransferData,
         importTransferData,
+        addCategory,
+        deleteCategory,
+        addAccount,
+        deleteAccount,
+        fetchExchangeRates,
       }}
     >
       {children}

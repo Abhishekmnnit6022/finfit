@@ -201,11 +201,10 @@ const MoneyTracker = () => {
         result = await ImagePicker.launchCameraAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
-          quality: 0.01,
+          quality: 0.7,
           base64: true,
-          aspect: [4, 3],
-          maxWidth: 600,
-          maxHeight: 450,
+          maxWidth: 1200,
+          maxHeight: 1600,
         });
       } else {
         permissionResult =
@@ -220,21 +219,34 @@ const MoneyTracker = () => {
         result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
-          quality: 0.01,
+          quality: 0.7,
           base64: true,
-          aspect: [4, 3],
-          maxWidth: 600,
-          maxHeight: 450,
+          maxWidth: 1200,
+          maxHeight: 1600,
         });
       }
 
-      if (!result.canceled) {
+      if (!result.canceled && result.assets && result.assets[0]?.base64) {
         await handleOCR(result.assets[0].base64);
       }
     } catch (error) {
       console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to capture/select image");
+      Alert.alert("Error", "Failed to capture/select image. Please try again.");
     }
+  };
+
+  const openCalculatorWithDetails = (prefill) => {
+    setEditingTransaction({
+      isFromOCR: true,
+      amount: parseFloat(prefill.amount) || 0,
+      type: "EXPENSE",
+      date: new Date().toISOString(),
+      category: prefill.category || "Other",
+      account: prefill.account || "Cash",
+      note: prefill.notes || prefill.merchant || "",
+      currency: state.defaultCurrency || "INR",
+    });
+    setShowCalculator(true);
   };
 
   const handleOCR = async (base64Image) => {
@@ -242,33 +254,60 @@ const MoneyTracker = () => {
       const parser = new ReceiptParser();
       const details = await parser.parseReceipt(base64Image);
 
+      if (!details || !details.amount || details.amount <= 0) {
+        Alert.alert(
+          "Receipt Amount Unclear",
+          `Could not clearly identify the total amount from the photo.\n\nMerchant: ${details?.merchant || 'Unknown'}\n\nWould you like to review and enter the amount manually?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Review & Enter",
+              onPress: () => {
+                openCalculatorWithDetails({
+                  amount: 0,
+                  category: details?.category || "Other",
+                  account: details?.account || "Cash",
+                  notes: details?.notes || details?.merchant || "",
+                });
+              },
+            },
+          ]
+        );
+        return;
+      }
+
       Alert.alert(
-        "Receipt Processed",
+        "Receipt Scanned",
         `Amount: ${formatCurrency(
           details.amount,
           state.defaultCurrency
-        )}\nCategory: ${details.category}\nAccount: ${
-          details.account
-        }\n\n${details.notes}`,
+        )}\nCategory: ${details.category}\nAccount: ${details.account}${
+          details.notes ? `\nNote: ${details.notes}` : ''
+        }\n\nReview details before saving so nothing is wrong:`,
         [
           {
-            text: "Add Transaction",
+            text: "Edit Details",
+            onPress: () => {
+              openCalculatorWithDetails(details);
+            },
+          },
+          {
+            text: "Save As-Is",
             onPress: async () => {
               const formattedTransaction = {
                 amount: parseFloat(details.amount),
                 type: "EXPENSE",
                 date: new Date().toISOString(),
-                category: details.category,
-                account: details.account,
+                category: details.category || "Other",
+                account: details.account || "Cash",
                 note: details.notes || "",
-                currency: state.defaultCurrency,
+                currency: state.defaultCurrency || "INR",
               };
 
               try {
                 await onSave(formattedTransaction);
-                Alert.alert("Success", "Transaction added successfully!", [
-                  { text: "OK" },
-                ]);
+                await loadExpensesFromDB();
+                Alert.alert("Success", "Transaction added successfully!");
               } catch (error) {
                 console.error("Error saving transaction:", error);
                 Alert.alert(
@@ -287,8 +326,18 @@ const MoneyTracker = () => {
     } catch (error) {
       console.error("Receipt Processing Error:", error);
       Alert.alert(
-        "Error",
-        "Failed to process receipt. Please try again or enter details manually."
+        "Receipt Scan Issue",
+        "Could not automatically scan the receipt. Would you like to enter the transaction manually?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Enter Manually",
+            onPress: () => {
+              setEditingTransaction(null);
+              setShowCalculator(true);
+            },
+          },
+        ]
       );
     }
   };
@@ -306,19 +355,8 @@ const MoneyTracker = () => {
       };
 
       await onSave(transactionWithCurrency);
-      if (editingTransaction) {
-        dispatch({
-          type: "EDIT_TRANSACTION",
-          payload: { id: editingTransaction.id, ...transactionWithCurrency },
-        });
-        setEditingTransaction(null);
-      } else {
-        const newTransaction = {
-          id: Date.now(),
-          ...transactionWithCurrency,
-        };
-        dispatch({ type: "ADD_TRANSACTION", payload: newTransaction });
-      }
+      await loadExpensesFromDB();
+      setEditingTransaction(null);
       setShowCalculator(false);
     } catch (error) {
       console.error("Error saving transaction:", error);
@@ -446,11 +484,19 @@ const MoneyTracker = () => {
         )}
       </ScrollView>
 
-      {/* Add Transaction Button */}
+      {/* Floating Action Buttons */}
+      {/* Plus button for manual expense entry */}
       <TouchableOpacity
         style={styles.addButton}
         onPress={() => setShowCalculator(true)}
-        onLongPress={showImageSourceOptions}
+      >
+        <Ionicons name="add" size={wp("7%")} color="#FFFFFF" />
+      </TouchableOpacity>
+
+      {/* Camera button for OCR receipt scanning */}
+      <TouchableOpacity
+        style={styles.cameraButton}
+        onPress={showImageSourceOptions}
       >
         <LottieView
           source={require("../assets/animation/camera_add.json")}
@@ -471,6 +517,7 @@ const MoneyTracker = () => {
         }}
       >
         <ExpenseCalculator
+          key={editingTransaction ? (editingTransaction.id || `ocr-${editingTransaction.amount}-${editingTransaction.category}`) : 'new'}
           onClose={() => {
             setShowCalculator(false);
             setEditingTransaction(null);
@@ -557,18 +604,36 @@ const styles = StyleSheet.create({
   addButton: {
     position: "absolute",
     right: wp("7%"),
+    bottom: hp("16%"),
+    width: wp("13%"),
+    height: wp("13%"),
+    borderRadius: wp("6.5%"),
+    backgroundColor: COLORS.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 8,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4.65,
+    zIndex: 10,
+  },
+  cameraButton: {
+    position: "absolute",
+    right: wp("7%"),
     bottom: hp("8%"),
     width: wp("14%"),
     height: wp("14%"),
     borderRadius: wp("7%"),
-    backgroundColor: COLORS.primary,
+    backgroundColor: "#2563EB",
     justifyContent: "center",
     alignItems: "center",
-    elevation: 5,
-    shadowColor: COLORS.primary,
+    elevation: 6,
+    shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.4,
     shadowRadius: 4.65,
+    zIndex: 10,
   },
   animationAdd: {
     width: wp("14%"),

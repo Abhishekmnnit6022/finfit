@@ -31,10 +31,12 @@ import { useTranslation } from 'react-i18next';
 
 // UPI Apps Data
 const UPI_APPS = [
-  { id: 'gpay', name: 'Google Pay', package: 'com.google.android.apps.nbu.paisa.user', uriSchema: 'tez' },
-  { id: 'phonepe', name: 'PhonePe', package: 'com.phonepe.app', uriSchema: 'phonepe' },
-  { id: 'paytm', name: 'Paytm', package: 'net.one97.paytm', uriSchema: 'paytmmp' },
-  // Add other UPI apps as needed
+  { id: 'gpay', name: 'Google Pay', package: 'com.google.android.apps.nbu.paisa.user', uriSchema: 'tez', icon: 'logo-google', color: '#4285F4', desc: 'Google Pay UPI' },
+  { id: 'phonepe', name: 'PhonePe', package: 'com.phonepe.app', uriSchema: 'phonepe', icon: 'wallet-outline', color: '#5f259f', desc: 'PhonePe UPI' },
+  { id: 'paytm', name: 'Paytm', package: 'net.one97.paytm', uriSchema: 'paytmmp', icon: 'cash-outline', color: '#00b9f5', desc: 'Paytm Payments Bank / UPI' },
+  { id: 'bhim', name: 'BHIM UPI', package: 'in.org.npci.upiapp', uriSchema: 'bhim', icon: 'card-outline', color: '#00796B', desc: 'NPCI BHIM UPI' },
+  { id: 'cred', name: 'CRED', package: 'com.dreamplug.androidapp', uriSchema: 'cred', icon: 'shield-checkmark-outline', color: '#333333', desc: 'CRED Club UPI' },
+  { id: 'any', name: 'Any UPI App', package: null, uriSchema: 'upi', icon: 'apps-outline', color: '#2563EB', desc: 'Open native app chooser' },
 ];
 
 // Function to open UPI apps
@@ -92,8 +94,9 @@ const ACCOUNTS = [
 ];
 
 const PAYMENT_METHODS = [
-  { id: 'cash', name: 'Cash' },
-  { id: 'upi', name: 'UPI Payment' }
+  { id: 'upi', name: 'UPI Payment', icon: 'phone-portrait-outline', desc: 'Pay with Google Pay, PhonePe, Paytm, etc.', color: '#2563EB' },
+  { id: 'cash', name: 'Cash', icon: 'cash-outline', desc: 'Pay with physical cash', color: '#10B981' },
+  { id: 'direct', name: 'Direct Save', icon: 'checkmark-circle-outline', desc: 'Already paid, just record expense', color: '#6366F1' },
 ];
 
 const MERCHANT_UPI = "blurofficialchannel@okaxis"; // Replace with your UPI ID
@@ -101,9 +104,10 @@ const MERCHANT_UPI = "blurofficialchannel@okaxis"; // Replace with your UPI ID
 const MAX_DIGITS = 9;
 const DECIMAL_PLACES = 2;
 
-const ExpenseCalculator = ({ onClose, initialData }) => {
+const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
   const { t } = useTranslation();
-  const isEditMode = Boolean(initialData);
+  const isFromOCR = Boolean(initialData?.isFromOCR);
+  const isEditMode = Boolean(initialData?.id && !isFromOCR && initialData?.isUpdate !== false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(initialData?.date ? new Date(initialData.date) : new Date());
@@ -121,8 +125,8 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
   const [isLoadingApps, setIsLoadingApps] = useState(false);
   const [amount, setAmount] = useState('0');
   const [isProcessing, setIsProcessing] = useState(false);
-  const { onSave, state } = useGlobalContext();
-  const [currency, setCurrency] = useState(initialData?.currency || state?.defaultCurrency || 'USD');
+  const { onSave, state, convertAmount } = useGlobalContext();
+  const [currency, setCurrency] = useState(initialData?.currency || state?.defaultCurrency || 'INR');
   const [originalAmount, setOriginalAmount] = useState('');
   const [originalCurrency, setOriginalCurrency] = useState('');
 
@@ -148,21 +152,22 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
   }, []);
 
   useEffect(() => {
-    // Only check for UPI apps if we're not in edit mode
-    if (!isEditMode) {
+    // Only check for UPI apps if we're not in edit mode and not from OCR
+    if (!isEditMode && !isFromOCR) {
       checkInstalledApps();
     }
-  }, [isEditMode]);
+  }, [isEditMode, isFromOCR]);
 
   useEffect(() => {
-    // Only proceed if we're in edit mode and have initial data
-    if (isEditMode && initialData) {
-      console.log('Editing Transaction:', initialData);
+    // Proceed if we have initial data (from edit mode or OCR prefill)
+    if (initialData) {
+      console.log('Loading Transaction InitialData:', initialData);
       console.log('Default Currency:', state?.defaultCurrency);
       console.log('Conversion Rates:', state?.conversionRates);
       
       // Validate initialData
-      if (!initialData.amount || !initialData.currency) {
+      const hasValidAmount = initialData.amount !== undefined && initialData.amount !== null && !isNaN(parseFloat(initialData.amount));
+      if (!hasValidAmount && !initialData.category && !initialData.note) {
         console.error('initialData is missing required fields:', initialData);
         Alert.alert(
           t('invalidDataTitle'),
@@ -172,39 +177,38 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
         return;
       }
   
+      // Sync category, account, and note from initialData (e.g. from OCR or edit)
+      if (initialData.category) setCategory(initialData.category);
+      if (initialData.account) setAccount(initialData.account);
+      if (initialData.note !== undefined) setNote(initialData.note);
+      if (initialData.type) setType(initialData.type);
+      if (initialData.date) setSelectedDate(new Date(initialData.date));
+
       // Store the original amount and currency
-      setOriginalAmount(initialData.amount?.toString() || '0');
-      setOriginalCurrency(initialData.currency || state?.defaultCurrency || 'USD');
+      const initAmountNum = parseFloat(initialData.amount) || 0;
+      setOriginalAmount(initAmountNum.toString());
+      setOriginalCurrency(initialData.currency || state?.defaultCurrency || 'INR');
       
       // If currencies are different and we need to convert
       if (initialData.currency !== state?.defaultCurrency) {
-        // Check if we have convertedAmount from the initial data
         if (initialData.convertedAmount !== undefined) {
           // Use the pre-calculated converted amount
           setAmount(parseFloat(initialData.convertedAmount).toFixed(DECIMAL_PLACES));
-        } else if (state?.conversionRates && 
-                   state.conversionRates[state.defaultCurrency] && 
-                   state.conversionRates[initialData.currency]) {
-          // Calculate conversion if rates are available
-          const conversionRate = state.conversionRates[state.defaultCurrency] / state.conversionRates[initialData.currency];
-          const convertedAmount = (initialData.amount * conversionRate).toFixed(DECIMAL_PLACES);
-          setAmount(convertedAmount);
         } else {
-          // If no conversion is possible, use original amount and show warning
-          console.warn(`Conversion rates are missing. Using original amount.`);
-          setAmount(parseFloat(initialData.amount).toFixed(DECIMAL_PLACES));
-          Alert.alert(
-            t('currencyConversionUnavailableTitle'),
-            t('currencyConversionUnavailableMessage', { currency: initialData.currency }),
-            [{ text: t('ok') }]
+          // Calculate conversion if rates are available
+          const converted = convertAmount(
+            parseFloat(initialData.amount) || 0,
+            initialData.currency,
+            state?.defaultCurrency || 'INR'
           );
+          setAmount(parseFloat(converted).toFixed(DECIMAL_PLACES));
         }
       } else {
         // Same currency, no conversion needed
         setAmount(parseFloat(initialData.amount).toFixed(DECIMAL_PLACES));
       }
     }
-  }, [isEditMode, initialData, state?.defaultCurrency, state?.conversionRates, onClose, t]);
+  }, [isEditMode, initialData, state?.defaultCurrency, convertAmount, onClose, t]);
 
   const formatDate = (date) => {
     return date.toLocaleDateString(t('locale'), { 
@@ -256,40 +260,64 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
   const handlePayment = (paymentMethod) => {
     setShowPaymentModal(false);
     if (paymentMethod === 'cash') {
+      if (!account) setAccount('Cash');
       setTimeout(() => {
         saveTransaction();
       }, 100);
     } else if (paymentMethod === 'upi') {
+      if (!account) setAccount('Bank Account');
+      checkInstalledApps();
       setShowUPIAppsModal(true);
+    } else {
+      setTimeout(() => {
+        saveTransaction();
+      }, 100);
     }
   };
 
   const handleUPIApp = async (app) => {
     try {
-      setShowUPIAppsModal(false); // Close any modal if needed
-      setPaymentPending(true);    // Set loading state to true (if using)
-  
+      setShowUPIAppsModal(false);
+      setPaymentPending(true);
+      
+      // Clean upi://pay intent without forcing amount or merchant IDs, letting the user complete payment naturally
+      const upiUrl = 'upi://pay';
+
       if (Platform.OS === 'android') {
-        // Android-specific handling with IntentLauncher
-        const activity = {
-          packageName: app.package,
-          flags: [
-            IntentLauncher.FLAG_ACTIVITY_NEW_TASK,
-            IntentLauncher.FLAG_ACTIVITY_SINGLE_TOP,
-          ],
-        };
-        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', activity);
+        if (app.package) {
+          try {
+            await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+              data: upiUrl,
+              packageName: app.package,
+              flags: (IntentLauncher.FLAG_ACTIVITY_NEW_TASK || 0x10000000),
+            });
+          } catch (launcherErr) {
+            console.warn('Direct package open failed, falling back to intent chooser:', launcherErr.message);
+            await Linking.openURL(upiUrl);
+          }
+        } else {
+          await Linking.openURL(upiUrl);
+        }
       } else {
-        // iOS-specific handling
-        const appSpecificUrl = `${app.uriSchema}://`; // Make sure to append '://' on iOS
-        await Linking.openURL(appSpecificUrl);
+        try {
+          const appUrl = `${app.uriSchema}://`;
+          const canOpen = await Linking.canOpenURL(appUrl);
+          if (canOpen) {
+            await Linking.openURL(appUrl);
+          } else {
+            await Linking.openURL(upiUrl);
+          }
+        } catch {
+          await Linking.openURL(upiUrl);
+        }
       }
-  
+
       setPaymentPending(false);
-      saveTransaction(); // Reset loading state and proceed to save transaction
+      saveTransaction();
     } catch (error) {
-      console.error('Error opening app:', error);
-      setPaymentPending(false);    // Reset loading state on error
+      console.warn('Error opening UPI app:', error?.message || error);
+      setPaymentPending(false);
+      saveTransaction();
     }
   };
 
@@ -405,7 +433,7 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
   }, [isProcessing]);
 
   // Save Transaction function
-  const saveTransaction = useCallback(() => {
+  const saveTransaction = useCallback(async () => {
     setShowUPIAppsModal(false);
     setPaymentPending(false);
   
@@ -422,35 +450,19 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
     }
   
     let finalAmount = numAmount;
-    let finalCurrency = state?.defaultCurrency || 'USD';
+    let finalCurrency = currency || state?.defaultCurrency || 'INR';
     let convertedAmount;
   
     // If we're in edit mode and dealing with different currencies
-    if (isEditMode && originalCurrency && originalCurrency !== state?.defaultCurrency) {
-      if (state?.conversionRates &&
-          state.conversionRates[originalCurrency] &&
-          state.conversionRates[state.defaultCurrency]) {
-        // Convert back to original currency
-        const conversionRate = state.conversionRates[originalCurrency] / state.conversionRates[state.defaultCurrency];
-        finalAmount = parseFloat((numAmount * conversionRate).toFixed(DECIMAL_PLACES));
-        finalCurrency = originalCurrency;
-        // Store the converted amount in default currency
-        convertedAmount = numAmount;
-      } else {
-        // If conversion rates are missing, keep the original amount and currency
-        finalAmount = parseFloat(amount);
-        finalCurrency = originalCurrency;
-        console.warn(`Conversion rates are missing. Saving amount in ${originalCurrency}.`);
-        Alert.alert(
-          t('currencyConversionUnavailableTitle'),
-          t('currencyConversionUnavailableMessage', { currency: originalCurrency }),
-          [{ text: t('ok') }]
-        );
-      }
+    if (isEditMode && originalCurrency && originalCurrency !== (state?.defaultCurrency || 'INR')) {
+      const convertedBack = convertAmount(numAmount, state?.defaultCurrency || 'INR', originalCurrency);
+      finalAmount = parseFloat(convertedBack.toFixed(DECIMAL_PLACES));
+      finalCurrency = originalCurrency;
+      convertedAmount = numAmount;
     }
 
     const transactionData = {
-      id: initialData?.id || Date.now(),
+      ...(isEditMode && initialData?.id ? { id: initialData.id } : {}),
       amount: parseFloat(finalAmount.toFixed(DECIMAL_PLACES)), // Ensure amount is rounded
       currency: finalCurrency,
       convertedAmount: convertedAmount ? parseFloat(convertedAmount.toFixed(DECIMAL_PLACES)) : undefined, // Rounded converted amount
@@ -464,12 +476,15 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
       isUpdate: isEditMode,
     };
   
-    onSave(transactionData);
+    const saveFunc = propOnSave || onSave;
+    if (saveFunc) {
+      await saveFunc(transactionData);
+    }
     onClose();
   }, [
     amount, type, category, account, fromAccount, toAccount, note, selectedDate,
-    initialData, isEditMode, onSave, onClose, validateAmount, originalCurrency,
-    state?.defaultCurrency, state?.conversionRates, originalAmount, t
+    initialData, isEditMode, isFromOCR, propOnSave, onSave, onClose, validateAmount, originalCurrency,
+    state?.defaultCurrency, convertAmount, originalAmount, currency, t
   ]);
 
   const handleSave = () => {
@@ -496,7 +511,7 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
       return;
     }
 
-    if (isEditMode || type === 'INCOME' || type === 'TRANSFER') {
+    if (isEditMode || isFromOCR || type === 'INCOME' || type === 'TRANSFER') {
       saveTransaction();
     } else {
       setShowPaymentModal(true);
@@ -631,37 +646,58 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
       visible={showUPIAppsModal}
       animationType="slide"
       transparent={false}
+      onRequestClose={() => {
+        setShowUPIAppsModal(false);
+        setShowPaymentModal(true);
+      }}
     >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>{t('selectUPIApp')}</Text>
-          <TouchableOpacity onPress={() => {
-            setShowUPIAppsModal(false);
-            setShowPaymentModal(true);
-          }}>
-            <Text style={{ color: COLORS.primary }}>{t('back')}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modalTitle}>{t('selectUPIApp') || 'Select UPI App'}</Text>
+            <Text style={{ fontSize: wp('3.2%'), color: COLORS.text.secondary, marginTop: 2 }}>
+              Choose an app to complete payment
+            </Text>
+          </View>
+          <TouchableOpacity 
+            style={{ padding: wp('2%') }}
+            onPress={() => {
+              setShowUPIAppsModal(false);
+              setShowPaymentModal(true);
+            }}
+          >
+            <Ionicons name="arrow-back" size={wp('6%')} color={COLORS.primary} />
           </TouchableOpacity>
         </View>
         {isLoadingApps ? (
           <View style={additionalStyles.loadingContainer}>
             <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={additionalStyles.loadingText}>{t('checkingInstalledApps')}</Text>
+            <Text style={additionalStyles.loadingText}>{t('checkingInstalledApps') || 'Checking apps...'}</Text>
           </View>
         ) : (
           <FlatList
             data={availableUPIApps}
             keyExtractor={(item) => item.id}
+            contentContainerStyle={{ padding: wp('4%') }}
             renderItem={({ item }) => (
               <TouchableOpacity 
-                style={styles.listItem}
+                style={styles.upiCard}
                 onPress={() => handleUPIApp(item)}
+                activeOpacity={0.7}
               >
-                <Text style={styles.listItemText}>{item.name}</Text>
+                <View style={[styles.upiIconContainer, { backgroundColor: item.color || COLORS.primary }]}>
+                  <Ionicons name={item.icon || 'wallet'} size={wp('6%')} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1, marginLeft: wp('3.5%') }}>
+                  <Text style={styles.upiCardTitle}>{item.name}</Text>
+                  <Text style={styles.upiCardSubtitle}>{item.desc || 'Instant UPI Payment'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={wp('5%')} color={COLORS.text.secondary} />
               </TouchableOpacity>
             )}
             ListEmptyComponent={() => (
               <View style={additionalStyles.emptyContainer}>
-                <Text style={additionalStyles.emptyText}>{t('noUPIAppsInstalled')}</Text>
+                <Text style={additionalStyles.emptyText}>{t('noUPIAppsInstalled') || 'No UPI apps found. You can still use any app on your device.'}</Text>
               </View>
             )}
           />
@@ -828,7 +864,7 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
               </TouchableOpacity>
             </View>
             <FlatList
-              data={CATEGORIES[type]}
+              data={(state?.categories && state.categories[type]) || CATEGORIES[type] || []}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity 
@@ -838,7 +874,9 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
                     setShowCategoryModal(false);
                   }}
                 >
-                  <Text style={styles.listItemText}>{t(item.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_'))}</Text>
+                  <Text style={styles.listItemText}>
+                    {t(item) || t(item.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')) || item}
+                  </Text>
                 </TouchableOpacity>
               )}
             />
@@ -859,7 +897,7 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
               </TouchableOpacity>
             </View>
             <FlatList
-                data={ACCOUNTS}
+                data={(state?.accounts && state.accounts.length > 0) ? state.accounts : ACCOUNTS}
                 keyExtractor={(item) => item}
                 renderItem={({ item }) => (
                   <TouchableOpacity 
@@ -869,7 +907,9 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
                       setShowAccountModal(false);
                     }}
                   >
-                    <Text style={styles.listItemText}>{t(item.toLowerCase().replace(/ /g, '_'))}</Text>
+                    <Text style={styles.listItemText}>
+                      {t(item) || t(item.toLowerCase().replace(/ /g, '_')) || item}
+                    </Text>
                   </TouchableOpacity>
                 )}
               />
@@ -890,7 +930,7 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
               </TouchableOpacity>
             </View>
             <FlatList
-              data={ACCOUNTS}
+              data={(state?.accounts && state.accounts.length > 0) ? state.accounts : ACCOUNTS}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity 
@@ -900,7 +940,9 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
                     setShowFromAccountModal(false);
                   }}
                 >
-                  <Text style={styles.listItemText}>{t(item.toLowerCase().replace(/ /g, '_'))}</Text>
+                  <Text style={styles.listItemText}>
+                    {t(item) || t(item.toLowerCase().replace(/ /g, '_')) || item}
+                  </Text>
                 </TouchableOpacity>
               )}
             />
@@ -921,7 +963,7 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
               </TouchableOpacity>
             </View>
             <FlatList
-              data={ACCOUNTS.filter(acc => acc !== fromAccount)}
+              data={((state?.accounts && state.accounts.length > 0) ? state.accounts : ACCOUNTS).filter(acc => acc !== fromAccount)}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity 
@@ -931,7 +973,9 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
                     setShowToAccountModal(false);
                   }}
                 >
-                  <Text style={styles.listItemText}>{t(item.toLowerCase().replace(/ /g, '_'))}</Text>
+                  <Text style={styles.listItemText}>
+                    {t(item) || t(item.toLowerCase().replace(/ /g, '_')) || item}
+                  </Text>
                 </TouchableOpacity>
               )}
             />
@@ -943,23 +987,41 @@ const ExpenseCalculator = ({ onClose, initialData }) => {
           visible={showPaymentModal}
           animationType="slide"
           transparent={false}
+          onRequestClose={() => setShowPaymentModal(false)}
         >
           <SafeAreaView style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{t('selectPaymentMethod')}</Text>
-              <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
-                <Text style={{ color: COLORS.primary }}>{t('cancel')}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>{t('selectPaymentMethod') || 'Payment Method'}</Text>
+                <Text style={{ fontSize: wp('3.2%'), color: COLORS.text.secondary, marginTop: 2 }}>
+                  How would you like to process this expense?
+                </Text>
+              </View>
+              <TouchableOpacity 
+                style={{ padding: wp('2%') }}
+                onPress={() => setShowPaymentModal(false)}
+              >
+                <Ionicons name="close" size={wp('6%')} color={COLORS.text.secondary} />
               </TouchableOpacity>
             </View>
             <FlatList
               data={PAYMENT_METHODS}
               keyExtractor={(item) => item.id}
+              contentContainerStyle={{ padding: wp('4%') }}
               renderItem={({ item }) => (
                 <TouchableOpacity 
-                  style={styles.listItem}
+                  style={styles.upiCard}
                   onPress={() => handlePayment(item.id)}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.listItemText}>{t(item.name.toLowerCase().replace(/ /g, '_'))}</Text>
+                  <View style={[styles.upiIconContainer, { backgroundColor: item.color || '#2563EB' }]}>
+                    <Ionicons name={item.icon || 'card-outline'} size={wp('6%')} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: wp('3.5%') }}>
+                    <Text style={styles.upiCardTitle}>{item.name}</Text>
+                    <Text style={styles.upiCardSubtitle}>{item.desc}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={wp('5%')} color={COLORS.text.secondary} />
                 </TouchableOpacity>
               )}
             />
@@ -1195,6 +1257,33 @@ const styles = StyleSheet.create({
   listItemText: {
     fontSize: wp('4%'),
     color: COLORS.text.primary,
+  },
+  upiCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.lightbackground,
+    padding: wp('3.5%'),
+    borderRadius: wp('3%'),
+    marginBottom: wp('3%'),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  upiIconContainer: {
+    width: wp('11%'),
+    height: wp('11%'),
+    borderRadius: wp('2.8%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  upiCardTitle: {
+    fontSize: wp('4%'),
+    fontWeight: '600',
+    color: COLORS.text.primary,
+  },
+  upiCardSubtitle: {
+    fontSize: wp('3%'),
+    color: COLORS.text.secondary,
+    marginTop: 2,
   },
   noteInput: {
     color: COLORS.text.primary,

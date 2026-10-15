@@ -1,6 +1,7 @@
-//recieptParser.js
+//ReceiptParser.js
 
 import axios from 'axios';
+import remoteConfig from './remoteConfig.js';
 
 const CATEGORIES = {
   EXPENSE: [
@@ -37,59 +38,160 @@ const ACCOUNTS = [
   'Investment'
 ];
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'; // or 'gpt-5-mini'
-
 class ReceiptParser {
   constructor() {}
 
+  async _getConfig() {
+    await remoteConfig.initialize();
+    return {
+      ocrApiKey: remoteConfig.get('OCR_API_KEY') || 'K85291492088957',
+      grokApiKey: remoteConfig.get('GROK_API_KEY'),
+      grokModel: remoteConfig.get('GROK_MODEL') || 'grok-2-mini',
+      geminiApiKey: remoteConfig.get('GEMINI_API_KEY'),
+      geminiModel: remoteConfig.get('GEMINI_MODEL') || 'gemini-1.5-flash',
+      openaiApiKey: remoteConfig.get('OPENAI_API_KEY'),
+      openaiModel: remoteConfig.get('OPENAI_MODEL') || 'gpt-4o-mini',
+    };
+  }
+
   async parseReceipt(base64Image) {
     try {
+      // 1. First attempt: Optical Character Recognition (OCR)
       const extractedText = await this.performOCR(base64Image);
+      if (extractedText && extractedText.trim().length > 0) {
+        const enrichedData = await this.analyzeWithGemini(extractedText);
+        if (enrichedData && enrichedData.amount > 0) {
+          return enrichedData;
+        }
+      }
 
-      const enrichedData = await this.analyzeWithGemini(extractedText);
+      // 2. Second attempt: Direct Multimodal AI Vision
+      const visionData = await this.analyzeWithVision(base64Image);
+      if (visionData && visionData.amount > 0) {
+        return visionData;
+      }
 
-      return enrichedData;
+      // 3. Third attempt: If text was found but amount was 0, return regex-parsed text
+      if (extractedText && extractedText.trim().length > 0) {
+        return this.regexFallback(extractedText);
+      }
+
+      return {
+        amount: 0,
+        category: 'Other',
+        account: 'Cash',
+        merchant: 'Receipt',
+        date: new Date().toISOString(),
+        items: [],
+        notes: 'Receipt scanned'
+      };
     } catch (error) {
-      console.error('Error in parseReceipt:', error);
-      throw error;
+      console.warn('parseReceipt non-fatal fallback:', error.message);
+      return {
+        amount: 0,
+        category: 'Other',
+        account: 'Cash',
+        merchant: 'Receipt',
+        date: new Date().toISOString(),
+        items: [],
+        notes: 'Receipt scanned'
+      };
     }
   }
 
   async performOCR(base64Image) {
-    try {
-      const apiKey = 'K82750295688957';
-      const formData = new FormData();
-      formData.append('apikey', apiKey);
-      formData.append('base64Image', `data:image/jpeg;base64,${base64Image}`);
-      formData.append('language', 'eng');
-      formData.append('detectOrientation', 'true');
-      formData.append('scale', 'true');
-      formData.append('OCREngine', '2');
+    const config = await this._getConfig();
+    const apiKey = config.ocrApiKey || 'K85291492088957';
 
-      const response = await axios.post(
-        'https://api.ocr.space/parse/image',
-        formData,
-        {
+    // Ensure clean base64 data URI format
+    const cleanBase64 = base64Image.startsWith('data:')
+      ? base64Image
+      : `data:image/jpeg;base64,${base64Image}`;
+
+    // Try OCR Space with URLSearchParams (bypasses React Native multipart boundary bugs)
+    const engines = ['2', '1'];
+    for (const engine of engines) {
+      try {
+        const params = new URLSearchParams();
+        params.append('apikey', apiKey);
+        params.append('base64Image', cleanBase64);
+        params.append('language', 'eng');
+        params.append('detectOrientation', 'true');
+        params.append('scale', 'true');
+        params.append('OCREngine', engine);
+
+        const response = await fetch('https://api.ocr.space/parse/image', {
+          method: 'POST',
           headers: {
-            'Content-Type': 'multipart/form-data',
-            'apikey': apiKey
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'apikey': apiKey,
+          },
+          body: params.toString(),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (!data.IsErroredOnProcessing && Array.isArray(data.ParsedResults) && data.ParsedResults.length > 0) {
+            const text = data.ParsedResults[0].ParsedText || '';
+            if (text.trim().length > 0) {
+              return text;
+            }
           }
         }
-      );
-
-      if (response.data.IsErroredOnProcessing) {
-        throw new Error(response.data.ErrorMessage || "OCR processing failed");
+      } catch (err) {
+        console.warn(`OCR Space engine ${engine} warning:`, err.message);
       }
-
-      return response.data.ParsedResults[0].ParsedText;
-    } catch (error) {
-      console.error('OCR Error:', error);
-      throw error;
     }
+
+    return '';
+  }
+
+  async analyzeWithVision(base64Image) {
+    try {
+      const config = await this._getConfig();
+      const rawBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
+
+      if (config.geminiApiKey && !config.geminiApiKey.startsWith('xai-')) {
+        const modelName = config.geminiModel || 'gemini-1.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                {
+                  text: `Analyze this receipt image and extract:\nAMOUNT:total amount (number only)\nCATEGORY:one of [${CATEGORIES.EXPENSE.join(', ')}]\nACCOUNT:one of [${ACCOUNTS.join(', ')}]\nMERCHANT:store/vendor name\nDATE:YYYY-MM-DD`
+                },
+                {
+                  inline_data: {
+                    mime_type: 'image/jpeg',
+                    data: rawBase64
+                  }
+                }
+              ]
+            }],
+            generationConfig: { temperature: 0.1 }
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (responseText) {
+            return this.parseGeminiResponse(responseText, 'Vision scan');
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Vision analysis warning:', e.message);
+    }
+    return null;
   }
 
   async analyzeWithGemini(text) {
+    const config = await this._getConfig();
+
     const prompt = `
       Analyze this receipt text and extract:
       1. Total amount (just the number)
@@ -118,33 +220,135 @@ class ReceiptParser {
       - Items: Unknown items
     `;
 
-    try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: OPENAI_MODEL,
-          messages: [
-            { role: 'system', content: 'You extract structured data from receipts. Respond ONLY using the specified key:value format.' },
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.2
-        })
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`OpenAI API error ${res.status}: ${errText}`);
+    // 1. Try Grok (xAI) if key is present (in GROK_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)
+    const grokKey = config.grokApiKey || 
+                    (config.openaiApiKey?.startsWith('xai-') ? config.openaiApiKey : null) ||
+                    (config.geminiApiKey?.startsWith('xai-') ? config.geminiApiKey : null);
+    if (grokKey) {
+      try {
+        const res = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${grokKey}`,
+          },
+          body: JSON.stringify({
+            model: config.grokModel || 'grok-2-mini',
+            messages: [
+              { role: 'system', content: 'You extract structured data from receipts. Respond ONLY using the specified key:value format.' },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.2
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const response = data.choices?.[0]?.message?.content || '';
+          if (response) return this.parseGeminiResponse(response, text);
+        }
+      } catch (err) {
+        console.warn('Grok receipt analysis failed:', err.message);
       }
-      const data = await res.json();
-      const response = data.choices?.[0]?.message?.content || '';
-      return this.parseGeminiResponse(response, text);
-    } catch (error) {
-      console.error('OpenAI API Error:', error);
-      throw error;
     }
+
+    // 2. Try Gemini API if key is present (and not an xai- key)
+    if (config.geminiApiKey && !config.geminiApiKey.startsWith('xai-')) {
+      try {
+        const modelName = config.geminiModel || 'gemini-1.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2 }
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const response = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (response) return this.parseGeminiResponse(response, text);
+        }
+      } catch (err) {
+        console.warn('Gemini receipt analysis failed:', err.message);
+      }
+    }
+
+    // 3. Try OpenAI API if key is present
+    if (config.openaiApiKey && !config.openaiApiKey.startsWith('xai-')) {
+      try {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.openaiModel,
+            messages: [
+              { role: 'system', content: 'You extract structured data from receipts. Respond ONLY using the specified key:value format.' },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.2
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const response = data.choices?.[0]?.message?.content || '';
+          if (response) return this.parseGeminiResponse(response, text);
+        }
+      } catch (err) {
+        console.warn('OpenAI receipt analysis failed:', err.message);
+      }
+    }
+
+    // 4. Offline Fallback: Extract amount and merchant with robust regex
+    return this.regexFallback(text);
+  }
+
+  regexFallback(text) {
+    if (!text || typeof text !== 'string') {
+      return {
+        amount: 0,
+        category: 'Other',
+        account: 'Cash',
+        merchant: 'Receipt',
+        date: new Date().toISOString(),
+        items: [],
+        notes: 'Receipt scanned'
+      };
+    }
+
+    const patterns = [
+      /(?:total|amount|net|paid|amt|grand\s*total)[\s:]*[$₹€£]?\s*([0-9]+(?:[.,][0-9]{1,2})?)/i,
+      /[$₹€£]\s*([0-9]+(?:[.,][0-9]{1,2})?)/,
+      /(?:bal|balance)[\s:]*[$₹€£]?\s*([0-9]+(?:[.,][0-9]{1,2})?)/i,
+      /\b([0-9]{2,6}[.,][0-9]{2})\b/
+    ];
+
+    let amount = 0;
+    for (const pat of patterns) {
+      const match = text.match(pat);
+      if (match && match[1]) {
+        const val = parseFloat(match[1].replace(',', '.'));
+        if (!isNaN(val) && val > 0) {
+          amount = val;
+          break;
+        }
+      }
+    }
+
+    const firstLine = text.split('\n').map(l => l.trim()).filter(l => l.length > 2)[0] || 'Receipt';
+
+    return {
+      amount,
+      category: 'Other',
+      account: 'Cash',
+      merchant: firstLine.slice(0, 30),
+      date: new Date().toISOString(),
+      items: [],
+      notes: `📍 ${firstLine.slice(0, 30)}`
+    };
   }
 
   parseGeminiResponse(response, originalText) {
