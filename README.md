@@ -16,7 +16,6 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Web-6366F1?style=for-the-badge" alt="Platforms" />
   <img src="https://img.shields.io/badge/Framework-Expo%20SDK%2051-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo" />
   <img src="https://img.shields.io/badge/React%20Native-0.74-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React Native" />
 </p>
