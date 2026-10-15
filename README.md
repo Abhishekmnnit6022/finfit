@@ -10,21 +10,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Abhishekmnnit6022/finfit/releases/download/v1.0.0/FinFit.apk">
-    <img src="https://img.shields.io/badge/Download-FinFit%20APK%20(v1.0.0)-2563EB?style=for-the-badge&logo=android&logoColor=white" alt="Download FinFit APK" />
-  </a>
-  <a href="https://github.com/Abhishekmnnit6022/finfit/releases">
-    <img src="https://img.shields.io/badge/GitHub-Releases-10B981?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Releases" />
-  </a>
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Web-6366F1?style=for-the-badge" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Framework-Expo%20SDK%2051-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo" />
+  <img src="https://img.shields.io/badge/React%20Native-0.74-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React Native" />
 </p>
 
 ---
 
 FinFit is a modern, privacy-focused personal finance tracking and budgeting application built with React Native and Expo. It empowers users to monitor expenses, manage budgets, track multi-currency balances, and gain actionable financial insights through automated analytics and AI-powered advisory.
-
-> [!TIP]
-> **Direct APK Download**: You can download the pre-compiled standalone Android APK directly from our [GitHub Releases](https://github.com/Abhishekmnnit6022/finfit/releases) or via the [Direct APK Download Link](https://github.com/Abhishekmnnit6022/finfit/releases/download/v1.0.0/FinFit.apk).
 
 ---
 
