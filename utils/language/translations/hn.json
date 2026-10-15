@@ -271,5 +271,18 @@
   "Failed to update default currency": "डिफ़ॉल्ट मुद्रा अपडेट करने में विफल",
   "Note: Exchange rates are updated daily": "नोट: विनिमय दरें दैनिक अपडेट होती हैं",
   "Currency Settings": "मुद्रा सेटिंग्स",
-  "Success": "सफलता"
+  "Success": "सफलता",
+  "Cash": "नकद",
+  "Savings": "बचत",
+  "No note": "कोई नोट नहीं",
+  "No account": "कोई खाता नहीं",
+  "Uncategorized": "अवर्गीकृत",
+  "Delete Transaction": "लेन-देन हटाएं",
+  "Are you sure you want to delete this transaction?": "क्या आप वाकई इस लेन-देन को हटाना चाहते हैं?",
+  "Quick Actions Guide": "त्वरित क्रियाएँ",
+  "Manual Record": "मैन्युअल रिकॉर्ड",
+  "Tap to add an expense, income, or transfer": "खर्च, आय या स्थानांतरण मैन्युअल दर्ज करने के लिए टैप करें",
+  "AI Smart Scan": "AI स्मार्ट स्कैन",
+  "Scan receipt or bill using camera or gallery": "कैमरा या गैलरी से बिल या रसीद तुरंत स्कैन करें",
+  "Got it!": "समझ गया!"
 }

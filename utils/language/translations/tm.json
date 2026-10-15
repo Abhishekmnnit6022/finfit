@@ -271,5 +271,21 @@
   "Failed to update default currency": "இயல்பு நாணயத்தை புதுப்பிக்க இயலவில்லை",
   "Note: Exchange rates are updated daily": "குறிப்பு: மாற்று விகிதங்கள் தினமும் புதுப்பிக்கப்படும்",
   "Currency Settings": "நாணய அமைப்புகள்",
-  "Success": "வெற்றி"
+  "Success": "வெற்றி",
+  "Cash": "பணம்",
+  "Savings": "சேமிப்பு",
+  "Credit Card": "கிரெடிட் கார்டு",
+  "Bank Account": "வங்கி கணக்கு",
+  "Investment": "முதலீடு",
+  "No note": "குறிப்பு இல்லை",
+  "No account": "கணக்கு இல்லை",
+  "Uncategorized": "வகைப்படுத்தப்படாதது",
+  "Delete Transaction": "பரிவர்த்தனையை நீக்கு",
+  "Are you sure you want to delete this transaction?": "இந்த பரிவர்த்தனையை நிச்சயமாக நீக்க விரும்புகிறீர்களா?",
+  "Quick Actions Guide": "விரைவு வழிகாட்டி",
+  "Manual Record": "கைமுறை பதிவு",
+  "Tap to add an expense, income, or transfer": "செலவு, வருவாய் அல்லது பரிமாற்றத்தை கைமுறையாக சேர்க்க",
+  "AI Smart Scan": "AI ஸ்மார்ட் ஸ்கேன்",
+  "Scan receipt or bill using camera or gallery": "கேமரா அல்லது கேலரியிலிருந்து ரசீதை ஸ்கேன் செய்ய",
+  "Got it!": "புரிந்தது!"
 }

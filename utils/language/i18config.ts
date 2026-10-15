@@ -1,6 +1,6 @@
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import { en, hn, tm } from '././translations';
+import { en, hn, tm, kn, mr, ur } from './translations';
 
 const resources = {
     English: {
@@ -11,6 +11,15 @@ const resources = {
     },
     Tamil: {
         translation: tm,
+    },
+    Kannada: {
+        translation: kn,
+    },
+    Marathi: {
+        translation: mr,
+    },
+    Urdu: {
+        translation: ur,
     }
 };
 
