@@ -1,25 +1,24 @@
-import i18next, { t } from 'i18next';
+import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import {en,hn, tm } from '././translations'
+import { en, hn, tm } from '././translations';
 
-const resources = { 
-    English:{
-        translation :en,
+const resources = {
+    English: {
+        translation: en,
     },
-    Hindi:{
-        translation :hn,
+    Hindi: {
+        translation: hn,
     },
-    Tamil:{
-        translation :tm,
+    Tamil: {
+        translation: tm,
     }
 };
 
 i18next.use(initReactI18next).init({
-    lng: 'en',
+    lng: 'English',
     debug: false,
     compatibilityJSON: 'v3',
-    //jab language traslaton nahi milegi to ye language show hogi
-    fallbackLng: 'en',
+    fallbackLng: 'English',
     interpolation: {
         escapeValue: false,
     },
