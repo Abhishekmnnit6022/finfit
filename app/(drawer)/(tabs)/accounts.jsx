@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -10,10 +10,12 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert
+  DeviceEventEmitter,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Link } from 'expo-router'; 
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS } from '../../../constants/theme';
 import { 
   widthPercentageToDP as wp, 
@@ -22,24 +24,61 @@ import {
 import Header from '../../../components/commonheader';
 import { useGlobalContext } from '../../../components/globalProvider';
 import { useTranslation } from 'react-i18next';
+import AccountGuideOverlay from '../../../components/AccountGuideOverlay';
 
 const DEFAULT_ACCOUNTS = ['Credit Card', 'Cash', 'Savings', 'Bank Account', 'Investment'];
 
 const AccountsScreen = () => {
-  const { fetchExpenses, state, convertAmount, addAccount, deleteAccount } = useGlobalContext();
+  const { fetchExpenses, state, convertAmount, addAccount, deleteAccount, showAlert } = useGlobalContext();
+  const isLight = state?.theme === "light";
   const { defaultCurrency, currencies } = state;
   const currencySymbol = currencies[defaultCurrency]?.symbol || defaultCurrency;
   const [accountBalances, setAccountBalances] = useState({});
   const [summary, setSummary] = useState({ totalExpense: 0, totalIncome: 0 });
   const [addAccountModalVisible, setAddAccountModalVisible] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
+  const [showAccountTour, setShowAccountTour] = useState(false);
   const { t } = useTranslation();
 
   const accountList = state.accounts && state.accounts.length > 0 ? state.accounts : DEFAULT_ACCOUNTS;
 
   useEffect(() => {
     loadAccountData();
+
+    const checkGuide = async () => {
+      try {
+        const done = await AsyncStorage.getItem("FINFIT_ACCOUNT_TOUR_COMPLETED");
+        if (!done) {
+          setShowAccountTour(true);
+        }
+      } catch (e) {}
+    };
+    checkGuide();
   }, [state.transactions, state.accounts, defaultCurrency]);
+
+  // Sync balances immediately when data is transferred from another device
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("FINFIT_DATA_SYNCED", () => {
+      loadAccountData();
+    });
+    return () => sub?.remove();
+  }, [state.transactions, state.accounts, defaultCurrency]);
+
+  // Reload balances fresh whenever accounts tab is focused
+  useFocusEffect(
+    useCallback(() => {
+      loadAccountData();
+    }, [state.transactions, state.accounts, defaultCurrency])
+  );
+
+  const dismissAccountTour = async () => {
+    try {
+      await AsyncStorage.setItem("FINFIT_ACCOUNT_TOUR_COMPLETED", "true");
+      setShowAccountTour(false);
+    } catch {
+      setShowAccountTour(false);
+    }
+  };
 
   const loadAccountData = async () => {
     try {
@@ -93,31 +132,48 @@ const AccountsScreen = () => {
   const handleAddAccountSubmit = () => {
     const trimmed = newAccountName.trim();
     if (!trimmed) {
-      Alert.alert(t('Error') || 'Error', t('Enter account name') || 'Please enter an account name');
+      showAlert({
+        title: t('Error') || 'Error',
+        message: t('Enter account name') || 'Please enter an account name',
+        type: 'error',
+      });
       return;
     }
 
     if (accountList.includes(trimmed)) {
-      Alert.alert(t('Error') || 'Error', 'Account with this name already exists');
+      showAlert({
+        title: t('Error') || 'Error',
+        message: 'Account with this name already exists',
+        type: 'error',
+      });
       return;
     }
 
     addAccount(trimmed);
     setNewAccountName('');
     setAddAccountModalVisible(false);
-    Alert.alert(t('Success') || 'Success', t('Account added successfully') || 'Account added successfully');
+    showAlert({
+      title: t('Success') || 'Success',
+      message: t('Account added successfully') || 'Account added successfully',
+      type: 'success',
+    });
   };
 
   const handleDeleteAccountPrompt = (accountType) => {
     if (accountType === 'Cash') {
-      Alert.alert(t('Cannot delete default accounts') || 'Cannot delete primary cash account');
+      showAlert({
+        title: t('Cannot delete default accounts') || 'Cannot delete primary cash account',
+        message: 'The Cash account is your primary account and cannot be deleted.',
+        type: 'warning',
+      });
       return;
     }
 
-    Alert.alert(
-      t('Confirm Delete') || 'Confirm Delete',
-      `${t('Are you sure you want to delete this account?') || 'Are you sure you want to delete'} "${t(accountType) || accountType}"?`,
-      [
+    showAlert({
+      title: t('Confirm Delete') || 'Confirm Delete',
+      message: `${t('Are you sure you want to delete this account?') || 'Are you sure you want to delete'} "${t(accountType) || accountType}"?`,
+      type: 'confirm',
+      buttons: [
         { text: t('Cancel') || 'Cancel', style: 'cancel' },
         {
           text: t('Delete') || 'Delete',
@@ -126,8 +182,8 @@ const AccountsScreen = () => {
             deleteAccount(accountType);
           },
         },
-      ]
-    );
+      ],
+    });
   };
 
   const accounts = accountList.map((type, index) => ({
@@ -141,7 +197,7 @@ const AccountsScreen = () => {
   const totalBalance = Object.values(accountBalances).reduce((sum, balance) => sum + (balance || 0), 0);
 
   const renderAccountCard = (account) => (
-    <View key={account.type} style={styles.accountCardContainer}>
+    <View key={account.type} style={[styles.accountCardContainer, isLight && { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0' }]}>
       <Link
         href={{
           pathname: "/accountDetails",
@@ -151,20 +207,20 @@ const AccountsScreen = () => {
       >
         <TouchableOpacity style={styles.accountCardTouchable}>
           <View style={styles.accountInfo}>
-            <View style={styles.accountIconContainer}>
-              <Ionicons name={account.icon} size={wp('6%')} color={COLORS.text.primary} />
+            <View style={[styles.accountIconContainer, isLight && { backgroundColor: '#F1F5F9' }]}>
+              <Ionicons name={account.icon} size={wp('6%')} color={isLight ? '#0F172A' : COLORS.text.primary} />
             </View>
             <View style={styles.accountDetails}>
-              <Text style={styles.accountType}>{t(account.type) || account.type}</Text>
+              <Text style={[styles.accountType, isLight && { color: '#0F172A' }]}>{t(account.type) || account.type}</Text>
               <Text style={[
                 styles.accountBalance,
-                { color: account.balance >= 0 ? '#51cf66' : '#ff6b6b' }
+                { color: account.balance >= 0 ? '#10B981' : '#EF4444' }
               ]}>
                 {currencySymbol}{Math.abs(account.balance).toFixed(2)}
               </Text>
             </View>
           </View>
-          <Ionicons name="chevron-forward-outline" size={wp('5.5%')} color={COLORS.text.secondary} />
+          <Ionicons name="chevron-forward-outline" size={wp('5.5%')} color={isLight ? '#64748B' : COLORS.text.secondary} />
         </TouchableOpacity>
       </Link>
 
@@ -181,31 +237,31 @@ const AccountsScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, isLight && { backgroundColor: '#F8F9FA' }]}>
       <Header searchIconShown={false} />
       <ScrollView style={styles.content}>
         {/* Total Balance Card */}
-        <View style={styles.totalBalance}>
-          <Text style={styles.totalBalanceLabel}>{t('All Accounts') || 'All Accounts'}</Text>
+        <View style={[styles.totalBalance, isLight && { backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' }]}>
+          <Text style={[styles.totalBalanceLabel, isLight && { color: '#64748B' }]}>{t('All Accounts') || 'All Accounts'}</Text>
           <Text style={[
             styles.totalBalanceAmount,
-            { color: totalBalance >= 0 ? '#51cf66' : '#ff6b6b' }
+            { color: totalBalance >= 0 ? '#10B981' : '#EF4444' }
           ]}>
             {currencySymbol}{Math.abs(totalBalance).toFixed(2)}
           </Text>
         </View>
 
         {/* Expense / Income Summary */}
-        <View style={styles.summary}>
+        <View style={[styles.summary, isLight && { backgroundColor: '#FFFFFF', borderBottomColor: '#E2E8F0' }]}>
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>{t('Expense Amount') || 'Expense Amount'}</Text>
-            <Text style={[styles.summaryAmount, { color: '#ff6b6b' }]}>
+            <Text style={[styles.summaryLabel, isLight && { color: '#64748B' }]}>{t('Expense Amount') || 'Expense Amount'}</Text>
+            <Text style={[styles.summaryAmount, { color: '#EF4444' }]}>
               {currencySymbol}{summary.totalExpense.toFixed(2)}
             </Text>
           </View>
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>{t('Income Amount') || 'Income Amount'}</Text>
-            <Text style={[styles.summaryAmount, { color: '#51cf66' }]}>
+            <Text style={[styles.summaryLabel, isLight && { color: '#64748B' }]}>{t('Income Amount') || 'Income Amount'}</Text>
+            <Text style={[styles.summaryAmount, { color: '#10B981' }]}>
               {currencySymbol}{summary.totalIncome.toFixed(2)}
             </Text>
           </View>
@@ -213,7 +269,7 @@ const AccountsScreen = () => {
 
         {/* Accounts Section Header with Add Button */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>{t('Accounts') || 'Accounts'}</Text>
+          <Text style={[styles.sectionTitle, isLight && { color: '#0F172A' }]}>{t('Accounts') || 'Accounts'}</Text>
           <TouchableOpacity
             style={styles.addAccountBtn}
             onPress={() => setAddAccountModalVisible(true)}
@@ -239,26 +295,26 @@ const AccountsScreen = () => {
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             style={styles.modalContainer}
           >
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, isLight && { backgroundColor: '#FFFFFF' }]}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{t('Add Account') || 'Add New Account'}</Text>
+                <Text style={[styles.modalTitle, isLight && { color: '#0F172A' }]}>{t('Add Account') || 'Add New Account'}</Text>
                 <TouchableOpacity
                   style={styles.modalCloseButton}
                   onPress={() => setAddAccountModalVisible(false)}
                 >
-                  <Ionicons name="close" size={wp('6%')} color={COLORS.text.primary} />
+                  <Ionicons name="close" size={wp('6%')} color={isLight ? '#0F172A' : COLORS.text.primary} />
                 </TouchableOpacity>
               </View>
 
               <View style={styles.modalInputContainer}>
-                <Text style={styles.modalInputLabel}>{t('Account Name') || 'Account Name'}</Text>
-                <View style={styles.modalInputWrapper}>
+                <Text style={[styles.modalInputLabel, isLight && { color: '#64748B' }]}>{t('Account Name') || 'Account Name'}</Text>
+                <View style={[styles.modalInputWrapper, isLight && { backgroundColor: '#F1F5F9' }]}>
                   <TextInput
-                    style={styles.modalInput}
+                    style={[styles.modalInput, isLight && { color: '#0F172A' }]}
                     value={newAccountName}
                     onChangeText={setNewAccountName}
                     placeholder={t('Enter account name') || 'e.g. PayPal, HDFC Bank, Wallet'}
-                    placeholderTextColor={COLORS.text.secondary}
+                    placeholderTextColor={isLight ? '#94A3B8' : COLORS.text.secondary}
                     selectionColor={COLORS.primary}
                     autoFocus={true}
                   />
@@ -267,10 +323,10 @@ const AccountsScreen = () => {
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.modalCancelButton]}
+                  style={[styles.modalButton, styles.modalCancelButton, isLight && { backgroundColor: '#E2E8F0' }]}
                   onPress={() => setAddAccountModalVisible(false)}
                 >
-                  <Text style={styles.modalCancelButtonText}>{t('Cancel') || 'Cancel'}</Text>
+                  <Text style={[styles.modalCancelButtonText, isLight && { color: '#0F172A' }]}>{t('Cancel') || 'Cancel'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalSaveButton]}
@@ -283,6 +339,7 @@ const AccountsScreen = () => {
           </KeyboardAvoidingView>
         </Modal>
       </ScrollView>
+      <AccountGuideOverlay visible={showAccountTour} onClose={dismissAccountTour} />
     </SafeAreaView>
   );
 };

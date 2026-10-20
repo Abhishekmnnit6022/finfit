@@ -1,10 +1,11 @@
 // components/CommonHeader.jsx
 import React from 'react';
 import { View, TouchableOpacity, SafeAreaView, Image, StatusBar, StyleSheet } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
 import { widthPercentageToDP as wp } from 'react-native-responsive-screen';
-import { useNavigation } from '@react-navigation/native';
+import { useGlobalContext } from './globalProvider';
 
 export default function Header({ 
   searchIconShown, 
@@ -14,19 +15,42 @@ export default function Header({
   showFilterBadge = false
 }) {
   const navigation = useNavigation();
+  const { state } = useGlobalContext();
+  const isLight = state?.theme === 'light';
+  const headerBg = isLight ? '#FFFFFF' : COLORS.background;
+  const headerIconColor = isLight ? '#0F172A' : COLORS.text.primary;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar translucent={false} backgroundColor={COLORS.background} barStyle="light-content" />
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: headerBg }]}>
+      <StatusBar
+        translucent={false}
+        backgroundColor={headerBg}
+        barStyle={isLight ? "dark-content" : "light-content"}
+      />
+      <View style={[styles.header, { backgroundColor: headerBg, borderBottomWidth: isLight ? 1 : 0, borderBottomColor: '#E2E8F0' }]}>
         {/* Left side: Menu button */}
-        <TouchableOpacity style={styles.menuButton} onPress={() => navigation.openDrawer()}>
-          <Ionicons name="menu" size={wp('6%')} color={COLORS.text.primary} />
+        <TouchableOpacity 
+          style={styles.menuButton} 
+          onPress={() => {
+            try {
+              if (navigation && typeof navigation.openDrawer === 'function') {
+                navigation.openDrawer();
+              }
+            } catch (err) {
+              console.warn('Error opening drawer:', err);
+            }
+          }}
+        >
+          <Ionicons name="menu" size={wp('6%')} color={headerIconColor} />
         </TouchableOpacity>
 
         {/* Center: Logo */}
         <View style={styles.logoContainer}>
-          <Image source={require('../assets/images/logo.png')} style={styles.logo} resizeMode="contain" />
+          <Image
+            source={require('../assets/images/logo.png')}
+            style={[styles.logo, isLight && { tintColor: COLORS.primary }]}
+            resizeMode="contain"
+          />
         </View>
 
         {/* Right side: Search and Filter icons */}
@@ -36,7 +60,7 @@ export default function Header({
               onPress={onSearchPress}
               style={styles.iconButton}
             >
-              <Ionicons name="search" size={wp('6%')} color={COLORS.text.primary} />
+              <Ionicons name="search" size={wp('6%')} color={headerIconColor} />
             </TouchableOpacity>
           ) : (
             <View style={styles.iconButtonPlaceholder} />
@@ -47,7 +71,7 @@ export default function Header({
               onPress={onFilterPress}
               style={styles.iconButton}
             >
-              <Ionicons name="funnel-outline" size={wp('6%')} color={COLORS.text.primary} />
+              <Ionicons name="funnel-outline" size={wp('6%')} color={headerIconColor} />
               {showFilterBadge && (
                 <View style={styles.filterBadge} />
               )}

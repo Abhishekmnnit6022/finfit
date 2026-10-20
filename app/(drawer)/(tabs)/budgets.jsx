@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -11,9 +11,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  DeviceEventEmitter,
 } from "react-native";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import { COLORS } from "../../../constants/theme";
 import {
   widthPercentageToDP as wp,
@@ -26,11 +28,12 @@ import {
   useBudgetNotifications,
   BudgetNotificationListener,
 } from "../../../components/Budgetnotification";
+import BudgetGuideOverlay from "../../../components/BudgetGuideOverlay";
 
 const BUDGETS_STORAGE_KEY = "APP_BUDGETS";
 
 const BudgetsScreen = () => {
-  const { state, fetchSpentByCategory, convertAmount, addCategory, deleteCategory, updateBudget } = useGlobalContext();
+  const { state, fetchSpentByCategory, convertAmount, addCategory, deleteCategory, updateBudget, showAlert } = useGlobalContext();
   const { t, i18n } = useTranslation();
   const [modalVisible, setModalVisible] = useState(false);
   const [addCategoryModalVisible, setAddCategoryModalVisible] = useState(false);
@@ -42,6 +45,7 @@ const BudgetsScreen = () => {
   const [budgets, setBudgets] = useState([]);
   const [spentByCategory, setSpentByCategory] = useState({});
   const [isLoading, setIsLoading] = useState(true);
+  const [showBudgetTour, setShowBudgetTour] = useState(false);
 
   const {
     checkBudgetThresholds,
@@ -52,6 +56,27 @@ const BudgetsScreen = () => {
   // Get the default currency and symbol
   const defaultCurrency = state.defaultCurrency || 'USD';
   const currencySymbol = state.currencies[defaultCurrency]?.symbol || defaultCurrency;
+
+  useEffect(() => {
+    const checkGuide = async () => {
+      try {
+        const done = await AsyncStorage.getItem("FINFIT_BUDGET_TOUR_COMPLETED");
+        if (!done) {
+          setShowBudgetTour(true);
+        }
+      } catch (e) {}
+    };
+    checkGuide();
+  }, []);
+
+  const dismissBudgetTour = async () => {
+    try {
+      await AsyncStorage.setItem("FINFIT_BUDGET_TOUR_COMPLETED", "true");
+      setShowBudgetTour(false);
+    } catch {
+      setShowBudgetTour(false);
+    }
+  };
 
   const getCategoryIcon = (category) => {
     const iconMap = {
@@ -91,57 +116,69 @@ const BudgetsScreen = () => {
   };
 
   // Initialize budgets for all categories
-  useEffect(() => {
-    const initializeBudgets = async () => {
-      try {
-        setIsLoading(true);
-        const savedBudgets = await loadSavedBudgets();
-        
-        const expenseCategories = state.categories?.EXPENSE || [];
-        const transferCategories = state.categories?.TRANSFER || [];
-        const allCategories = [...expenseCategories, ...transferCategories];
+  const initializeBudgets = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const savedBudgets = await loadSavedBudgets();
+      
+      const expenseCategories = state.categories?.EXPENSE || [];
+      const transferCategories = state.categories?.TRANSFER || [];
+      const allCategories = [...expenseCategories, ...transferCategories];
 
-        const initializedBudgets = allCategories.map((category) => {
-          const savedBudget = savedBudgets?.find(b => b.category === category);
-          
-          if (savedBudget) {
-            return {
-              ...savedBudget,
-              icon: getCategoryIcon(category),
-              type: expenseCategories.includes(category) ? "EXPENSE" : "TRANSFER",
-            };
-          }
-          
+      const initializedBudgets = allCategories.map((category) => {
+        const savedBudget = savedBudgets?.find(b => b.category === category);
+        
+        if (savedBudget) {
           return {
-            id: Date.now().toString() + category,
-            category: category,
-            title: category,
-            limit: 0,
+            ...savedBudget,
             icon: getCategoryIcon(category),
             type: expenseCategories.includes(category) ? "EXPENSE" : "TRANSFER",
           };
-        });
+        }
+        
+        return {
+          id: Date.now().toString() + category,
+          category: category,
+          title: category,
+          limit: 0,
+          icon: getCategoryIcon(category),
+          type: expenseCategories.includes(category) ? "EXPENSE" : "TRANSFER",
+        };
+      });
 
-        setBudgets(initializedBudgets);
-        if (updateBudget) {
-          updateBudget(initializedBudgets);
-        }
-        
-        if (!savedBudgets || savedBudgets.length === 0) {
-          await saveBudgetsToStorage(initializedBudgets);
-        }
-        
-        setIsLoading(false);
-      } catch (error) {
-        console.error("Error initializing budgets:", error);
-        setIsLoading(false);
+      setBudgets(initializedBudgets);
+      
+      if (!savedBudgets || savedBudgets.length === 0) {
+        await saveBudgetsToStorage(initializedBudgets);
       }
-    };
+      
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error initializing budgets:", error);
+      setIsLoading(false);
+    }
+  }, [state.categories]);
 
+  useEffect(() => {
     if (state.categories) {
       initializeBudgets();
     }
-  }, [state.categories]);
+  }, [state.categories, initializeBudgets]);
+
+  // Sync immediately when peer-to-peer data sync finishes
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("FINFIT_DATA_SYNCED", () => {
+      initializeBudgets();
+    });
+    return () => sub?.remove();
+  }, [initializeBudgets]);
+
+  // Keep fresh whenever switching back to budgets tab
+  useFocusEffect(
+    useCallback(() => {
+      initializeBudgets();
+    }, [initializeBudgets])
+  );
 
   useEffect(() => {
     if (state.language && i18n.language !== state.language) {
@@ -230,7 +267,11 @@ const BudgetsScreen = () => {
   const handleAddCategorySubmit = async () => {
     const trimmed = newCategoryName.trim();
     if (!trimmed) {
-      Alert.alert(t('Error') || 'Error', t('Enter category name') || 'Please enter a category name');
+      showAlert({
+        title: t('Error') || 'Error',
+        message: t('Enter category name') || 'Please enter a category name',
+        type: 'error',
+      });
       return;
     }
 
@@ -255,19 +296,28 @@ const BudgetsScreen = () => {
     setNewCategoryName("");
     setNewCategoryInitialLimit("");
     setAddCategoryModalVisible(false);
-    Alert.alert(t('Success') || 'Success', t('Category added successfully') || 'Category added successfully');
+    showAlert({
+      title: t('Success') || 'Success',
+      message: t('Category added successfully') || 'Category added successfully',
+      type: 'success',
+    });
   };
 
   const handleDeleteCategoryPrompt = (budget) => {
     if (budget.category === 'Other') {
-      Alert.alert(t('Cannot delete default categories') || 'Cannot delete default category');
+      showAlert({
+        title: t('Cannot delete default categories') || 'Cannot delete default category',
+        message: 'The default category is required and cannot be removed.',
+        type: 'warning',
+      });
       return;
     }
 
-    Alert.alert(
-      t('Confirm Delete') || 'Confirm Delete',
-      `${t('Are you sure you want to delete this category?') || 'Are you sure you want to delete'} "${t(budget.category) || budget.category}"?`,
-      [
+    showAlert({
+      title: t('Confirm Delete') || 'Confirm Delete',
+      message: `${t('Are you sure you want to delete this category?') || 'Are you sure you want to delete'} "${t(budget.category) || budget.category}"?`,
+      type: 'confirm',
+      buttons: [
         { text: t('Cancel') || 'Cancel', style: 'cancel' },
         {
           text: t('Delete') || 'Delete',
@@ -279,8 +329,8 @@ const BudgetsScreen = () => {
             await saveBudgetsToStorage(remaining);
           },
         },
-      ]
-    );
+      ],
+    });
   };
 
   const handleLimitChange = (text) => {
@@ -313,27 +363,47 @@ const BudgetsScreen = () => {
   };
 
   const renderBudgetCard = (budget) => {
+    const isLight = state?.theme === 'light';
     const spent = spentByCategory[budget.category] || 0;
     const status = getBudgetStatus(spent, budget.limit);
     const percentageUsed = budget.limit > 0 ? ((spent / budget.limit) * 100).toFixed(0) : 0;
     const translatedName = t(budget.category) || budget.title || budget.category;
 
     return (
-      <View key={budget.id} style={styles.budgetCard}>
+      <View
+        key={budget.id}
+        style={[
+          styles.budgetCard,
+          isLight && {
+            backgroundColor: '#FFFFFF',
+            borderWidth: 1,
+            borderColor: '#E2E8F0',
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.05,
+            shadowRadius: 3,
+            elevation: 2,
+          },
+        ]}
+      >
         <View style={styles.budgetInfo}>
           <View
-            style={[styles.budgetIconContainer, { borderColor: status.color }]}
+            style={[
+              styles.budgetIconContainer,
+              { borderColor: status.color },
+              isLight && { backgroundColor: '#F1F5F9' },
+            ]}
           >
             <FontAwesome5
               name={budget.icon}
               size={wp("5.5%")}
-              color={COLORS.text.primary}
+              color={isLight ? (status.color || '#4F46E5') : COLORS.text.primary}
             />
           </View>
 
           <View style={styles.budgetDetails}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={styles.budgetType} numberOfLines={1}>{translatedName}</Text>
+              <Text style={[styles.budgetType, isLight && { color: '#0F172A' }]} numberOfLines={1}>{translatedName}</Text>
               
               <View style={styles.cardActionsRow}>
                 <TouchableOpacity
@@ -365,7 +435,7 @@ const BudgetsScreen = () => {
             </View>
 
             <View style={styles.budgetProgressInfo}>
-              <Text style={styles.budgetProgress}>
+              <Text style={[styles.budgetProgress, isLight && { color: '#64748B' }]}>
                 {currencySymbol}
                 {spent.toFixed(2)} / {currencySymbol}
                 {budget.limit > 0 ? budget.limit.toFixed(2) : '0'}
@@ -375,7 +445,7 @@ const BudgetsScreen = () => {
               </Text>
             </View>
             {renderProgressBar(spent, budget.limit)}
-            <Text style={styles.percentageText}>
+            <Text style={[styles.percentageText, isLight && { color: '#64748B' }]}>
               {percentageUsed}% {t("used") || "used"}
             </Text>
           </View>
@@ -395,18 +465,32 @@ const BudgetsScreen = () => {
     );
   }
 
+  const isLight = state?.theme === 'light';
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, isLight && { backgroundColor: '#F8F9FA' }]}>
       <BudgetNotificationListener
         onNotificationReceived={handleNotificationReceived}
       />
       <Header seachIconShown={false} />
       <ScrollView style={styles.content}>
         {/* Top Overview */}
-        <View style={styles.overviewContainer}>
+        <View style={[
+          styles.overviewContainer,
+          isLight && {
+            backgroundColor: '#FFFFFF',
+            borderWidth: 1,
+            borderColor: '#E2E8F0',
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.05,
+            shadowRadius: 3,
+            elevation: 2,
+          },
+        ]}>
           <View style={styles.overviewHeader}>
             <View style={styles.overviewTitleContainer}>
-              <Text style={styles.overviewLabel}>
+              <Text style={[styles.overviewLabel, isLight && { color: '#64748B' }]}>
                 {t("Monthly Budget Overview") || "Monthly Budget Overview"}
               </Text>
               <TouchableOpacity
@@ -417,7 +501,7 @@ const BudgetsScreen = () => {
                 <Text style={styles.quickAddCategoryText}>{t("Add Category") || "+ Add Category"}</Text>
               </TouchableOpacity>
             </View>
-            <Text style={styles.totalBalanceAmount}>
+            <Text style={[styles.totalBalanceAmount, isLight && { color: '#0F172A' }]}>
               {currencySymbol}
               {totalBudget.toFixed(2)}
             </Text>
@@ -425,22 +509,22 @@ const BudgetsScreen = () => {
 
           <View style={styles.overviewProgress}>
             {renderProgressBar(totalSpent, totalBudget)}
-            <Text style={styles.overviewProgressText}>
-              {spentPercentage.toFixed(0)}% {t("ofTotalBudgetUsed") || "% of total budget used"}
+            <Text style={[styles.overviewProgressText, isLight && { color: '#64748B' }]}>
+              {spentPercentage.toFixed(0)}% {t("ofTotalBudgetUsed") ? t("ofTotalBudgetUsed").replace(/%/g, "").trim() : "of total budget used"}
             </Text>
           </View>
 
           <View style={styles.summary}>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>{t("spent") || "SPENT"}</Text>
+              <Text style={[styles.summaryLabel, isLight && { color: '#64748B' }]}>{t("spent") || "SPENT"}</Text>
               <Text style={[styles.summaryAmount, { color: "#ff6b6b" }]}>
                 {currencySymbol}
                 {totalSpent.toFixed(2)}
               </Text>
             </View>
-            <View style={styles.divider} />
+            <View style={[styles.divider, isLight && { backgroundColor: '#E2E8F0' }]} />
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>{t("remaining") || "REMAINING"}</Text>
+              <Text style={[styles.summaryLabel, isLight && { color: '#64748B' }]}>{t("remaining") || "REMAINING"}</Text>
               <Text style={[styles.summaryAmount, { color: "#51cf66" }]}>
                 {currencySymbol}
                 {totalRemaining.toFixed(2)}
@@ -451,7 +535,7 @@ const BudgetsScreen = () => {
 
         {/* Expenses Section Header with Add Button */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>{t("Expenses") || "Expenses"}</Text>
+          <Text style={[styles.sectionTitle, isLight && { color: '#0F172A' }]}>{t("Expenses") || "Expenses"}</Text>
           <TouchableOpacity
             style={styles.sectionAddBtn}
             onPress={() => {
@@ -477,7 +561,7 @@ const BudgetsScreen = () => {
 
         {/* Transfers Section Header with Add Button */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>{t("Transfers") || "Transfers"}</Text>
+          <Text style={[styles.sectionTitle, isLight && { color: '#0F172A' }]}>{t("Transfers") || "Transfers"}</Text>
           <TouchableOpacity
             style={styles.sectionAddBtn}
             onPress={() => {
@@ -512,9 +596,9 @@ const BudgetsScreen = () => {
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             style={styles.modalContainer}
           >
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, isLight && { backgroundColor: '#FFFFFF' }]}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{t("Edit Budget Limit") || "Edit Budget Limit"}</Text>
+                <Text style={[styles.modalTitle, isLight && { color: '#0F172A' }]}>{t("Edit Budget Limit") || "Edit Budget Limit"}</Text>
                 <TouchableOpacity
                   style={styles.modalCloseButton}
                   onPress={() => setModalVisible(false)}
@@ -522,7 +606,7 @@ const BudgetsScreen = () => {
                   <Ionicons
                     name="close"
                     size={wp("6%")}
-                    color={COLORS.text.primary}
+                    color={isLight ? '#0F172A' : COLORS.text.primary}
                   />
                 </TouchableOpacity>
               </View>
@@ -533,6 +617,7 @@ const BudgetsScreen = () => {
                     <View
                       style={[
                         styles.modalIconContainer,
+                        isLight && { backgroundColor: '#F1F5F9' },
                         {
                           borderColor: getBudgetStatus(
                             spentByCategory[selectedBudget.category] || 0,
@@ -544,25 +629,25 @@ const BudgetsScreen = () => {
                       <FontAwesome5
                         name={selectedBudget.icon}
                         size={wp("6%")}
-                        color={COLORS.text.primary}
+                        color={isLight ? '#0F172A' : COLORS.text.primary}
                       />
                     </View>
-                    <Text style={styles.modalBudgetTitle}>
+                    <Text style={[styles.modalBudgetTitle, isLight && { color: '#0F172A' }]}>
                       {t(selectedBudget.category) || selectedBudget.title}
                     </Text>
                   </View>
 
                   <View style={styles.modalInputContainer}>
-                    <Text style={styles.modalInputLabel}>{t("Budget Limit") || "Budget Limit"}</Text>
-                    <View style={styles.modalInputWrapper}>
-                      <Text style={styles.currencySymbol}>{currencySymbol}</Text>
+                    <Text style={[styles.modalInputLabel, isLight && { color: '#64748B' }]}>{t("Budget Limit") || "Budget Limit"}</Text>
+                    <View style={[styles.modalInputWrapper, isLight && { backgroundColor: '#F1F5F9' }]}>
+                      <Text style={[styles.currencySymbol, isLight && { color: '#0F172A' }]}>{currencySymbol}</Text>
                       <TextInput
-                        style={styles.modalInput}
+                        style={[styles.modalInput, isLight && { color: '#0F172A' }]}
                         keyboardType="numeric"
                         value={newLimit}
                         onChangeText={handleLimitChange}
                         placeholder="0.00"
-                        placeholderTextColor={COLORS.text.secondary}
+                        placeholderTextColor={isLight ? '#94A3B8' : COLORS.text.secondary}
                         selectionColor={COLORS.primary}
                         autoFocus={true}
                       />
@@ -570,8 +655,8 @@ const BudgetsScreen = () => {
                   </View>
 
                   <View style={styles.modalCurrentInfo}>
-                    <Text style={styles.modalInfoText}>{t("Current Spent") || "Current Spent"}</Text>
-                    <Text style={styles.modalInfoValue}>
+                    <Text style={[styles.modalInfoText, isLight && { color: '#64748B' }]}>{t("Current Spent") || "Current Spent"}</Text>
+                    <Text style={[styles.modalInfoValue, isLight && { color: '#0F172A' }]}>
                       {currencySymbol}
                       {(spentByCategory[selectedBudget.category] || 0).toFixed(2)}
                     </Text>
@@ -579,10 +664,10 @@ const BudgetsScreen = () => {
 
                   <View style={styles.modalButtons}>
                     <TouchableOpacity
-                      style={[styles.modalButton, styles.modalCancelButton]}
+                      style={[styles.modalButton, styles.modalCancelButton, isLight && { backgroundColor: '#E2E8F0' }]}
                       onPress={() => setModalVisible(false)}
                     >
-                      <Text style={styles.modalCancelButtonText}>{t("Cancel") || "Cancel"}</Text>
+                      <Text style={[styles.modalCancelButtonText, isLight && { color: '#0F172A' }]}>{t("Cancel") || "Cancel"}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.modalButton, styles.modalSaveButton]}
@@ -610,9 +695,9 @@ const BudgetsScreen = () => {
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             style={styles.modalContainer}
           >
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, isLight && { backgroundColor: '#FFFFFF' }]}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{t("Add New Category") || "Add New Category"}</Text>
+                <Text style={[styles.modalTitle, isLight && { color: '#0F172A' }]}>{t("Add New Category") || "Add New Category"}</Text>
                 <TouchableOpacity
                   style={styles.modalCloseButton}
                   onPress={() => setAddCategoryModalVisible(false)}
@@ -620,7 +705,7 @@ const BudgetsScreen = () => {
                   <Ionicons
                     name="close"
                     size={wp("6%")}
-                    color={COLORS.text.primary}
+                    color={isLight ? '#0F172A' : COLORS.text.primary}
                   />
                 </TouchableOpacity>
               </View>
@@ -632,6 +717,7 @@ const BudgetsScreen = () => {
                     key={catType}
                     style={[
                       styles.typeSelectorBtn,
+                      isLight && { backgroundColor: '#E2E8F0' },
                       newCategoryType === catType && styles.typeSelectorBtnActive,
                     ]}
                     onPress={() => setNewCategoryType(catType)}
@@ -639,6 +725,7 @@ const BudgetsScreen = () => {
                     <Text
                       style={[
                         styles.typeSelectorText,
+                        isLight && { color: '#0F172A' },
                         newCategoryType === catType && styles.typeSelectorTextActive,
                       ]}
                     >
@@ -650,14 +737,14 @@ const BudgetsScreen = () => {
 
               {/* Category Name Input */}
               <View style={styles.modalInputContainer}>
-                <Text style={styles.modalInputLabel}>{t("Category Name") || "Category Name"}</Text>
-                <View style={styles.modalInputWrapper}>
+                <Text style={[styles.modalInputLabel, isLight && { color: '#64748B' }]}>{t("Category Name") || "Category Name"}</Text>
+                <View style={[styles.modalInputWrapper, isLight && { backgroundColor: '#F1F5F9' }]}>
                   <TextInput
-                    style={styles.modalInput}
+                    style={[styles.modalInput, isLight && { color: '#0F172A' }]}
                     value={newCategoryName}
                     onChangeText={setNewCategoryName}
                     placeholder={t("Enter category name") || "e.g. Groceries, Gym, OTT"}
-                    placeholderTextColor={COLORS.text.secondary}
+                    placeholderTextColor={isLight ? '#94A3B8' : COLORS.text.secondary}
                     selectionColor={COLORS.primary}
                   />
                 </View>
@@ -665,16 +752,16 @@ const BudgetsScreen = () => {
 
               {/* Initial Budget Limit (Optional) */}
               <View style={styles.modalInputContainer}>
-                <Text style={styles.modalInputLabel}>{t("Budget Limit") || "Budget Limit (Optional)"}</Text>
-                <View style={styles.modalInputWrapper}>
-                  <Text style={styles.currencySymbol}>{currencySymbol}</Text>
+                <Text style={[styles.modalInputLabel, isLight && { color: '#64748B' }]}>{t("Budget Limit") || "Budget Limit (Optional)"}</Text>
+                <View style={[styles.modalInputWrapper, isLight && { backgroundColor: '#F1F5F9' }]}>
+                  <Text style={[styles.currencySymbol, isLight && { color: '#0F172A' }]}>{currencySymbol}</Text>
                   <TextInput
-                    style={styles.modalInput}
+                    style={[styles.modalInput, isLight && { color: '#0F172A' }]}
                     keyboardType="numeric"
                     value={newCategoryInitialLimit}
                     onChangeText={(txt) => setNewCategoryInitialLimit(txt.replace(/[^0-9.]/g, ""))}
                     placeholder="0.00"
-                    placeholderTextColor={COLORS.text.secondary}
+                    placeholderTextColor={isLight ? '#94A3B8' : COLORS.text.secondary}
                     selectionColor={COLORS.primary}
                   />
                 </View>
@@ -682,17 +769,17 @@ const BudgetsScreen = () => {
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.modalCancelButton]}
+                  style={[styles.modalButton, styles.modalCancelButton, isLight && { backgroundColor: '#E2E8F0' }]}
                   onPress={() => setAddCategoryModalVisible(false)}
                 >
-                  <Text style={styles.modalCancelButtonText}>{t("Cancel") || "Cancel"}</Text>
+                  <Text style={[styles.modalCancelButtonText, isLight && { color: '#0F172A' }]}>{t("Cancel") || "Cancel"}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalSaveButton]}
                   onPress={handleAddCategorySubmit}
                 >
                   <Text style={styles.modalSaveButtonText}>
-                    {t("Add") || "Add Category"}
+                    {t("Add Category") || "Add Category"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -700,6 +787,7 @@ const BudgetsScreen = () => {
           </KeyboardAvoidingView>
         </Modal>
       </ScrollView>
+      <BudgetGuideOverlay visible={showBudgetTour} onClose={dismissBudgetTour} />
     </SafeAreaView>
   );
 };

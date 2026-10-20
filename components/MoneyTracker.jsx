@@ -2,7 +2,7 @@
 
 import ReceiptParser from "../utils/ReceiptParser";
 import LottieView from "lottie-react-native";
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
   TextInput,
   ScrollView,
   Animated,
+  DeviceEventEmitter,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,6 +29,7 @@ import {
 import ExpenseCalculator from "./ExpenseCalculator";
 import TransactionRecord from "./TransactionRecord";
 import { FilterModal } from "./FilterModal";
+import AppGuideOverlay from "./AppGuideOverlay";
 import CommonHeader from "./commonheader";
 import { useGlobalContext } from "./globalProvider";
 import {
@@ -41,8 +43,9 @@ import { hi, ta } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 
 const MoneyTracker = () => {
-  const { onSave, state, dispatch, convertAmount, loadExpensesFromDB } =
+  const { onSave, state, dispatch, convertAmount, loadExpensesFromDB, showAlert } =
     useGlobalContext();
+  const isLight = state?.theme === 'light';
   const [showCalculator, setShowCalculator] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
   const { t, i18n } = useTranslation();
@@ -52,6 +55,7 @@ const MoneyTracker = () => {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [filters, setFilters] = useState({ type: "ALL", categories: [] });
   const [showFabGuide, setShowFabGuide] = useState(false);
+  const [showAppTour, setShowAppTour] = useState(false);
 
   // Animated scale values for buttons
   const plusScale = React.useRef(new Animated.Value(1)).current;
@@ -75,18 +79,43 @@ const MoneyTracker = () => {
 
   useEffect(() => {
     loadExpensesFromDB();
-    const checkFabGuide = async () => {
+
+    const checkGuides = async () => {
       try {
-        const hasSeen = await AsyncStorage.getItem("FINFIT_FAB_GUIDE_DISMISSED");
-        if (!hasSeen) {
-          setShowFabGuide(true);
+        const tourDone = await AsyncStorage.getItem("FINFIT_APP_TOUR_COMPLETED");
+        if (!tourDone) {
+          setShowAppTour(true);
+        } else {
+          const hasSeenFab = await AsyncStorage.getItem("FINFIT_FAB_GUIDE_DISMISSED");
+          if (!hasSeenFab) {
+            setShowFabGuide(true);
+          }
         }
       } catch (err) {
-        console.warn("Error reading fab guide status:", err?.message);
+        console.warn("Error reading guide status:", err?.message);
       }
     };
-    checkFabGuide();
+    checkGuides();
+
+    const sub = DeviceEventEmitter.addListener("TRIGGER_APP_TOUR", () => {
+      setShowAppTour(true);
+    });
+    return () => sub?.remove();
   }, []);
+
+  const dismissAppTour = async () => {
+    try {
+      await AsyncStorage.setItem("FINFIT_APP_TOUR_COMPLETED", "true");
+      setShowAppTour(false);
+      // After main tour, check if FAB guide should show
+      const hasSeenFab = await AsyncStorage.getItem("FINFIT_FAB_GUIDE_DISMISSED");
+      if (!hasSeenFab) {
+        setTimeout(() => setShowFabGuide(true), 400);
+      }
+    } catch {
+      setShowAppTour(false);
+    }
+  };
 
   const dismissFabGuide = async () => {
     try {
@@ -224,24 +253,26 @@ const MoneyTracker = () => {
   };
 
   const showImageSourceOptions = () => {
-    Alert.alert(
-      "Select Image Source",
-      "Choose where you want to pick the image from",
-      [
+    showAlert({
+      title: t("Select Image Source") || "Select Image Source",
+      message: t("Choose where you want to pick the receipt image from") || "Choose where you want to pick the receipt image from",
+      type: "info",
+      icon: "camera-outline",
+      buttons: [
         {
-          text: "Camera",
+          text: t("Camera") || "Camera",
           onPress: () => pickImage("camera"),
         },
         {
-          text: "Gallery",
+          text: t("Gallery") || "Gallery",
           onPress: () => pickImage("gallery"),
         },
         {
-          text: "Cancel",
+          text: t("Cancel") || "Cancel",
           style: "cancel",
         },
-      ]
-    );
+      ],
+    });
   };
 
   const pickImage = async (source) => {
@@ -252,10 +283,11 @@ const MoneyTracker = () => {
       if (source === "camera") {
         permissionResult = await ImagePicker.requestCameraPermissionsAsync();
         if (!permissionResult.granted) {
-          Alert.alert(
-            "Permission Error",
-            "Permission to access camera is required!"
-          );
+          showAlert({
+            title: t("Permission Error") || "Permission Error",
+            message: t("Permission to access camera is required!") || "Permission to access camera is required!",
+            type: "warning",
+          });
           return;
         }
         result = await ImagePicker.launchCameraAsync({
@@ -270,10 +302,11 @@ const MoneyTracker = () => {
         permissionResult =
           await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!permissionResult.granted) {
-          Alert.alert(
-            "Permission Error",
-            "Permission to access gallery is required!"
-          );
+          showAlert({
+            title: t("Permission Error") || "Permission Error",
+            message: t("Permission to access gallery is required!") || "Permission to access gallery is required!",
+            type: "warning",
+          });
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({
@@ -291,7 +324,11 @@ const MoneyTracker = () => {
       }
     } catch (error) {
       console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to capture/select image. Please try again.");
+      showAlert({
+        title: t("Error") || "Error",
+        message: t("Failed to capture/select image. Please try again.") || "Failed to capture/select image. Please try again.",
+        type: "error",
+      });
     }
   };
 
@@ -326,10 +363,11 @@ const MoneyTracker = () => {
       const details = await parser.parseReceipt(base64Image, { categories: availableCategories });
 
       if (!details || !details.amount || details.amount <= 0) {
-        Alert.alert(
-          "Receipt Amount Unclear",
-          `Could not clearly identify the total amount from the photo.\n\nMerchant: ${details?.merchant || 'Unknown'}\n\nWould you like to review and enter the amount manually?`,
-          [
+        showAlert({
+          title: "Receipt Amount Unclear",
+          message: `Could not clearly identify the total amount from the photo.\n\nMerchant: ${details?.merchant || 'Unknown'}\n\nWould you like to review and enter the amount manually?`,
+          type: "warning",
+          buttons: [
             { text: "Cancel", style: "cancel" },
             {
               text: "Review & Enter",
@@ -343,23 +381,24 @@ const MoneyTracker = () => {
                 });
               },
             },
-          ]
-        );
+          ],
+        });
         return;
       }
 
       const hasValidCategory = details.category && details.category !== 'Other';
 
       if (hasValidCategory) {
-        Alert.alert(
-          "Receipt Scanned",
-          `Amount: ${formatCurrency(
+        showAlert({
+          title: "Receipt Scanned",
+          message: `Amount: ${formatCurrency(
             details.amount,
             state.defaultCurrency
           )}\nCategory: ${details.category} (Auto-Categorized)\nAccount: ${details.account}${
             details.notes ? `\nNote: ${details.notes}` : ''
           }\n\nIs this category correct for budget tracking?`,
-          [
+          type: "confirm",
+          buttons: [
             {
               text: "Save",
               onPress: async () => {
@@ -376,13 +415,18 @@ const MoneyTracker = () => {
                 try {
                   await onSave(formattedTransaction);
                   await loadExpensesFromDB();
-                  Alert.alert("Success", "Transaction added successfully!");
+                  showAlert({
+                    title: "Success",
+                    message: "Transaction added successfully!",
+                    type: "success",
+                  });
                 } catch (error) {
                   console.error("Error saving transaction:", error);
-                  Alert.alert(
-                    "Error",
-                    "Failed to save transaction. Please try again."
-                  );
+                  showAlert({
+                    title: "Error",
+                    message: "Failed to save transaction. Please try again.",
+                    type: "error",
+                  });
                 }
               },
             },
@@ -399,17 +443,18 @@ const MoneyTracker = () => {
               text: "Cancel",
               style: "cancel",
             },
-          ]
-        );
+          ],
+        });
       } else {
         // Prompt user to select category for budget tracking & notifications
-        Alert.alert(
-          "Category Needed for Budget Tracking",
-          `Amount: ${formatCurrency(
+        showAlert({
+          title: "Category Needed for Budget Tracking",
+          message: `Amount: ${formatCurrency(
             details.amount,
             state.defaultCurrency
           )}\nMerchant: ${details.merchant || details.notes || 'Receipt'}\n\nWe couldn't automatically determine the category. Please pick a category so your budget tracking and notifications stay accurate:`,
-          [
+          type: "warning",
+          buttons: [
             {
               text: "Edit",
               onPress: () => {
@@ -424,15 +469,16 @@ const MoneyTracker = () => {
               text: "Cancel",
               style: "cancel",
             },
-          ]
-        );
+          ],
+        });
       }
     } catch (error) {
       console.error("Receipt Processing Error:", error);
-      Alert.alert(
-        "Receipt Scan Issue",
-        "Could not automatically scan the receipt. Would you like to enter the transaction manually?",
-        [
+      showAlert({
+        title: "Receipt Scan Issue",
+        message: "Could not automatically scan the receipt. Would you like to enter the transaction manually?",
+        type: "error",
+        buttons: [
           { text: "Cancel", style: "cancel" },
           {
             text: "Enter Manually",
@@ -441,8 +487,8 @@ const MoneyTracker = () => {
               setShowCalculator(true);
             },
           },
-        ]
-      );
+        ],
+      });
     }
   };
 
@@ -464,7 +510,11 @@ const MoneyTracker = () => {
       setShowCalculator(false);
     } catch (error) {
       console.error("Error saving transaction:", error);
-      Alert.alert("Error", "Failed to save transaction. Please try again.");
+      showAlert({
+        title: "Error",
+        message: "Failed to save transaction. Please try again.",
+        type: "error",
+      });
     }
   };
 
@@ -488,7 +538,7 @@ const MoneyTracker = () => {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isLight && { backgroundColor: "#F8F9FA" }]}>
       {/* Common Header */}
       <CommonHeader
         searchIconShown={true}
@@ -500,11 +550,11 @@ const MoneyTracker = () => {
 
       {/* Search Input */}
       {showSearchBar && (
-        <View style={styles.searchContainer}>
+        <View style={[styles.searchContainer, isLight && { backgroundColor: "#FFFFFF", borderColor: "#E2E8F0" }]}>
           <TextInput
-            style={styles.searchInput}
-            placeholder="Search transactions..."
-            placeholderTextColor={COLORS.text.secondary}
+            style={[styles.searchInput, isLight && { color: "#0F172A" }]}
+            placeholder={t("Search transactions...") || "Search transactions..."}
+            placeholderTextColor={isLight ? "#94A3B8" : COLORS.text.secondary}
             value={searchTerm}
             onChangeText={setSearchTerm}
             autoFocus
@@ -513,30 +563,30 @@ const MoneyTracker = () => {
       )}
 
       {/* Month Navigation */}
-      <View style={styles.monthNav}>
+      <View style={[styles.monthNav, isLight && { backgroundColor: "#FFFFFF", borderBottomColor: "#E2E8F0" }]}>
         <TouchableOpacity onPress={handlePreviousMonth}>
           <Ionicons
             name="chevron-back"
             size={wp("6%")}
-            color={COLORS.text.primary}
+            color={isLight ? "#0F172A" : COLORS.text.primary}
           />
         </TouchableOpacity>
-        <Text style={styles.monthText}>
+        <Text style={[styles.monthText, isLight && { color: "#0F172A" }]}>
           {formattedMonthText}
         </Text>
         <TouchableOpacity onPress={handleNextMonth}>
           <Ionicons
             name="chevron-forward"
             size={wp("6%")}
-            color={COLORS.text.primary}
+            color={isLight ? "#0F172A" : COLORS.text.primary}
           />
         </TouchableOpacity>
       </View>
 
       {/* Summary Section */}
-      <View style={styles.summary}>
+      <View style={[styles.summary, isLight && { backgroundColor: "#FFFFFF", borderBottomColor: "#E2E8F0" }]}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryLabel}>{t("Expenses")}</Text>
+          <Text style={[styles.summaryLabel, isLight && { color: "#64748B" }]}>{t("Expenses")}</Text>
           <Text style={[styles.summaryAmount, { color: "#ff6b6b" }]}>
             {formatCurrency(
               currentMonthSummary.expense,
@@ -545,13 +595,13 @@ const MoneyTracker = () => {
           </Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryLabel}>{t("Income")}</Text>
+          <Text style={[styles.summaryLabel, isLight && { color: "#64748B" }]}>{t("Income")}</Text>
           <Text style={[styles.summaryAmount, { color: "#51cf66" }]}>
             {formatCurrency(currentMonthSummary.income, state.defaultCurrency)}
           </Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryLabel}>{t("Total")}</Text>
+          <Text style={[styles.summaryLabel, isLight && { color: "#64748B" }]}>{t("Total")}</Text>
           <Text
             style={[
               styles.summaryAmount,
@@ -566,21 +616,21 @@ const MoneyTracker = () => {
       </View>
 
       {/* Transaction List */}
-      <ScrollView style={styles.transactionList}>
+      <ScrollView style={[styles.transactionList, isLight && { backgroundColor: "#F8F9FA" }]}>
         {currentMonthTransactions.length === 0 ? (
-          <View style={styles.emptyState}>
+          <View style={[styles.emptyState, isLight && { backgroundColor: "#F8F9FA" }]}>
             <LottieView
               source={require("../assets/animation/empty.json")}
               autoPlay
               loop
               style={styles.animation}
             />
-            <Text style={styles.emptyText}>
+            <Text style={[styles.emptyText, isLight && { color: "#64748B" }]}>
               {searchTerm ||
               filters.type !== "ALL" ||
               filters.categories.length > 0
-                ? "No transactions match your filters"
-                : "No transactions this month"}
+                ? (t("No transactions match your filters") || "No transactions match your filters")
+                : (t("No Record Text") || t("No record in this month. Tap + to add new expense or income") || "No transactions this month")}
             </Text>
           </View>
         ) : (
@@ -588,8 +638,11 @@ const MoneyTracker = () => {
         )}
       </ScrollView>
 
-      {/* First-install hover/coachmark guide overlay */}
-      {showFabGuide && (
+      {/* App-Wide Walkthrough Hover Guide */}
+      <AppGuideOverlay visible={showAppTour} onClose={dismissAppTour} />
+
+      {/* First-install hover/coachmark guide overlay for FAB */}
+      {showFabGuide && !showAppTour && (
         <View style={styles.fabGuideOverlay}>
           <TouchableOpacity
             style={styles.fabGuideBackdrop}
@@ -792,9 +845,9 @@ const styles = StyleSheet.create({
     width: wp("14%"),
     height: wp("14%"),
     borderRadius: wp("7%"),
-    backgroundColor: "#2563EB",
+    backgroundColor: COLORS.primary,
     elevation: 8,
-    shadowColor: "#2563EB",
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.45,
     shadowRadius: 5,
@@ -807,9 +860,9 @@ const styles = StyleSheet.create({
     width: wp("14%"),
     height: wp("14%"),
     borderRadius: wp("7%"),
-    backgroundColor: "#2563EB",
+    backgroundColor: COLORS.primary,
     elevation: 8,
-    shadowColor: "#2563EB",
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.45,
     shadowRadius: 5,
@@ -839,9 +892,9 @@ const styles = StyleSheet.create({
     borderRadius: wp("3.5%"),
     padding: wp("3.5%"),
     borderWidth: 1.5,
-    borderColor: "#2563EB",
+    borderColor: COLORS.primary,
     elevation: 12,
-    shadowColor: "#2563EB",
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
@@ -867,7 +920,7 @@ const styles = StyleSheet.create({
     width: wp("8%"),
     height: wp("8%"),
     borderRadius: wp("4%"),
-    backgroundColor: "#2563EB",
+    backgroundColor: COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -885,7 +938,7 @@ const styles = StyleSheet.create({
     lineHeight: wp("3.8%"),
   },
   fabGuideDismissBtn: {
-    backgroundColor: "#2563EB",
+    backgroundColor: COLORS.primary,
     paddingVertical: hp("0.8%"),
     borderRadius: wp("2%"),
     alignItems: "center",
@@ -907,7 +960,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: wp("2.5%"),
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
-    borderLeftColor: "#2563EB",
+    borderLeftColor: COLORS.primary,
   },
 });
 

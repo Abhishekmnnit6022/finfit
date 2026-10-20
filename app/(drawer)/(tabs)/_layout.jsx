@@ -33,15 +33,17 @@ useEffect(() => {
 }, [state.language]);
 
 
+  const isLight = state?.theme === 'light';
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: isLight ? '#FFFFFF' : COLORS.background }}>
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: COLORS.secondary,
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: COLORS.background,
-          borderTopColor: COLORS.lightbackground,
+          backgroundColor: isLight ? '#FFFFFF' : COLORS.background,
+          borderTopColor: isLight ? '#E2E8F0' : COLORS.lightbackground,
           borderTopWidth: 1,
           paddingBottom: hp('1%'),
           height: hp('7.5%')
@@ -51,7 +53,7 @@ useEffect(() => {
           marginTop: 0,
           paddingBottom: hp('0.5%')
         },
-        tabBarInactiveTintColor: COLORS.text.secondary,
+        tabBarInactiveTintColor: isLight ? '#64748B' : COLORS.text.secondary,
         safeAreaInsets: { bottom: true },
       }}
     >

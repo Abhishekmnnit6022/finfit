@@ -14,7 +14,7 @@ import { useGlobalContext } from './globalProvider';
 import { currencies } from '../utils/currencyService';
 
 const TransactionRecord = React.memo(({ transaction, onEdit }) => {
-  const { deleteExpense, loadExpensesFromDB, state } = useGlobalContext();
+  const { deleteExpense, loadExpensesFromDB, state, showAlert } = useGlobalContext();
   const { t, i18n } = useTranslation();
 
   const getDateLocale = () => {
@@ -71,26 +71,31 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
   const handleDelete = useCallback(async (e) => {
     e.stopPropagation();
     
-    Alert.alert(
-      t("Delete Transaction") || "Delete Transaction",
-      t("Are you sure you want to delete this transaction?") || "Are you sure you want to delete this transaction?",
-      [
+    showAlert({
+      title: t("Delete Transaction") || "Delete Transaction",
+      message: t("Are you sure you want to delete this transaction?") || "Are you sure you want to delete this transaction?",
+      type: 'confirm',
+      buttons: [
         { text: t("Cancel") || "Cancel", style: "cancel" },
         {
           text: t("Delete") || "Delete",
+          style: "destructive",
           onPress: async () => {
             try {
               await deleteExpense(transaction.id);
               await loadExpensesFromDB();
             } catch (error) {
-              Alert.alert(t("Error") || "Error", t("Failed to delete transaction.") || "Failed to delete transaction.");
+              showAlert({
+                title: t("Error") || "Error",
+                message: t("Failed to delete transaction.") || "Failed to delete transaction.",
+                type: 'error',
+              });
             }
           },
-          style: "destructive"
-        }
-      ]
-    );
-  }, [transaction?.id, deleteExpense, loadExpensesFromDB, t]);
+        },
+      ],
+    });
+  }, [transaction?.id, deleteExpense, loadExpensesFromDB, t, showAlert]);
 
   const handleEdit = useCallback(() => {
     if (onEdit) onEdit(transaction);
@@ -105,15 +110,20 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
   const displayAccount = t(transaction.account) || transaction.account || t('No account') || 'No account';
   const displayNote = transaction.note?.trim() || t('No note') || 'No note';
 
+  const isLight = state?.theme === 'light';
+
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[
+        styles.container,
+        isLight && styles.containerLight,
+      ]}
       onPress={handleEdit}
       activeOpacity={0.7}
     >
       <View style={styles.mainContent}>
         <View style={styles.leftContent}>
-          <Text style={styles.category}>
+          <Text style={[styles.category, isLight && { color: '#0F172A' }]}>
             {displayCategory}
           </Text>
         </View>
@@ -127,28 +137,28 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
         </Text>
       </View>
 
-      <Text style={styles.note}>
+      <Text style={[styles.note, isLight && { color: '#64748B' }]}>
         {displayNote}
       </Text>
 
       <View style={styles.bottomRow}>
         <View style={styles.leftInfo}>
-          <Text style={styles.account}>
+          <Text style={[styles.account, isLight && { color: '#64748B' }]}>
             {displayAccount}
           </Text>
-          <Text style={styles.dot}>•</Text>
-          <Text style={styles.date}>{formattedDate}</Text>
+          <Text style={[styles.dot, isLight && { color: '#94A3B8' }]}>•</Text>
+          <Text style={[styles.date, isLight && { color: '#64748B' }]}>{formattedDate}</Text>
         </View>
         
         <TouchableOpacity
           onPress={handleDelete}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          style={styles.deleteButton}
+          style={[styles.deleteButton, isLight && { opacity: 0.9 }]}
         >
           <Ionicons 
             name="trash-outline" 
-            size={wp('3.8%')} 
-            color={COLORS.text.secondary}
+            size={wp('4%')} 
+            color={isLight ? '#EF4444' : COLORS.text.secondary}
           />
         </TouchableOpacity>
       </View>
@@ -159,9 +169,21 @@ const TransactionRecord = React.memo(({ transaction, onEdit }) => {
 const styles = StyleSheet.create({
   container: {
     padding: wp('4%'),
-    backgroundColor: COLORS.pri,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightbackground,
+    marginHorizontal: wp('3.5%'),
+    marginVertical: hp('0.6%'),
+    borderRadius: wp('3.5%'),
+    backgroundColor: COLORS.lightbackground,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  containerLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   mainContent: {
     flexDirection: 'row',

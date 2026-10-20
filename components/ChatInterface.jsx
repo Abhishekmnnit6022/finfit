@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
     View,
     Text,
@@ -20,20 +20,19 @@ import {
     heightPercentageToDP as hp,
 } from "react-native-responsive-screen";
 import { chatWithAI, getInitialAnalysis } from '../utils/aiService';
-
-const SUGGESTED_QUERIES = [
-    'Tell me about my expenses 💳',
-    'How can I save money? 💰',
-    'Help me budget 📊',
-    'Food & canteen tips 🍔',
-];
+import { useGlobalContext } from './globalProvider';
+import { useTranslation } from 'react-i18next';
 
 const ChatInterface = ({ summary, transactions, onClose }) => {
     const insets = useSafeAreaInsets();
-    const [messages, setMessages] = useState([
+    const { state } = useGlobalContext();
+    const isLight = state?.theme === 'light';
+    const { t } = useTranslation();
+
+    const [messages, setMessages] = useState(() => [
         {
             id: '1',
-            text: "Hi! I'm your personal finance advisor from FinFit. I'm analyzing your financial data...",
+            text: t("Hi! I'm your personal finance advisor from FinFit. I'm analyzing your financial data...") || "Hi! I'm your personal finance advisor from FinFit. I'm analyzing your financial data...",
             isUser: false,
         },
     ]);
@@ -41,35 +40,50 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
     const [isLoading, setIsLoading] = useState(true);
     const flatListRef = useRef();
 
+    const suggestedQueries = useMemo(() => [
+        t('Tell me about my expenses 💳') || 'Tell me about my expenses 💳',
+        t('How can I save money? 💰') || 'How can I save money? 💰',
+        t('Help me budget 📊') || 'Help me budget 📊',
+        t('Food & canteen tips 🍔') || 'Food & canteen tips 🍔',
+    ], [state.language]);
+
     useEffect(() => {
+        let isMounted = true;
         const fetchInitialAnalysis = async () => {
             try {
-                const analysis = await getInitialAnalysis(summary, transactions);
-                setMessages(prev => [
-                    ...prev,
-                    {
-                        id: Date.now().toString(),
-                        text: analysis,
-                        isUser: false,
-                    }
-                ]);
+                const analysis = await getInitialAnalysis(summary, transactions, state.language);
+                if (isMounted) {
+                    setMessages(prev => [
+                        ...prev,
+                        {
+                            id: Date.now().toString(),
+                            text: analysis,
+                            isUser: false,
+                        }
+                    ]);
+                }
             } catch (error) {
                 console.error('Initial analysis error:', error);
-                setMessages(prev => [
-                    ...prev,
-                    {
-                        id: Date.now().toString(),
-                        text: "I encountered an error analyzing your data. Feel free to ask me specific questions about your finances.",
-                        isUser: false,
-                    }
-                ]);
+                if (isMounted) {
+                    setMessages(prev => [
+                        ...prev,
+                        {
+                            id: Date.now().toString(),
+                            text: t("I encountered an error analyzing your data. Feel free to ask me specific questions about your finances.") || "I encountered an error analyzing your data. Feel free to ask me specific questions about your finances.",
+                            isUser: false,
+                        }
+                    ]);
+                }
             } finally {
-                setIsLoading(false);
+                if (isMounted) {
+                    setIsLoading(false);
+                }
             }
         };
 
         fetchInitialAnalysis();
-    }, [summary, transactions]);
+        return () => { isMounted = false; };
+    }, [summary, transactions, state.language]);
 
     const handleSend = async (customText = null) => {
         const textToSend = (typeof customText === 'string' ? customText : inputText).trim();
@@ -88,7 +102,8 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
         setIsLoading(true);
 
         try {
-            const response = await chatWithAI(textToSend, summary, transactions);
+            // Passes current active state.language. If language changed, new reply is in active language.
+            const response = await chatWithAI(textToSend, summary, transactions, state.language);
             const aiMessage = {
                 id: (Date.now() + 1).toString(),
                 text: response,
@@ -99,7 +114,7 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
             console.error('Chat error:', error);
             const errorMessage = {
                 id: (Date.now() + 1).toString(),
-                text: 'Sorry, I encountered an error. Please try again.',
+                text: t('Sorry, I encountered an error. Please try again.') || 'Sorry, I encountered an error. Please try again.',
                 isUser: false,
             };
             setMessages(prev => [...prev, errorMessage]);
@@ -138,20 +153,27 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
             <View
                 style={[
                     styles.messageContainer,
-                    item.isUser ? styles.userMessage : styles.aiMessage,
+                    item.isUser
+                        ? styles.userMessage
+                        : [
+                            styles.aiMessage,
+                            isLight && { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0' }
+                        ],
                 ]}
             >
                 {!item.isUser && (
                     <View style={styles.aiAvatarRow}>
-                        <View style={styles.aiAvatar}>
-                            <Ionicons name="sparkles" size={wp('3.5%')} color={COLORS.secondary} />
+                        <View style={[styles.aiAvatar, isLight && { backgroundColor: 'rgba(5, 150, 105, 0.12)' }]}>
+                            <Ionicons name="sparkles" size={wp('3.5%')} color={isLight ? '#059669' : COLORS.secondary} />
                         </View>
-                        <Text style={styles.aiLabel}>FinFit AI Advisor</Text>
+                        <Text style={[styles.aiLabel, isLight && { color: '#059669' }]}>
+                            {t("FinFit AI Advisor") || "FinFit AI Advisor"}
+                        </Text>
                     </View>
                 )}
                 <Text style={[
                     styles.messageText,
-                    item.isUser ? styles.userMessageText : styles.aiMessageText,
+                    item.isUser ? styles.userMessageText : [styles.aiMessageText, isLight && { color: '#0F172A' }],
                 ]}>
                     {textContent}
                 </Text>
@@ -160,24 +182,28 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={[styles.safeArea, isLight && { backgroundColor: '#F8F9FA' }]}>
             <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
-                style={styles.container}
+                style={[styles.container, isLight && { backgroundColor: '#F8F9FA' }]}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? hp('2%') : 0}
             >
-                <View style={styles.header}>
+                <View style={[styles.header, isLight && { backgroundColor: '#FFFFFF', borderBottomColor: '#E2E8F0' }]}>
                     <View style={styles.headerLeft}>
                         <View style={styles.headerIcon}>
                             <Ionicons name="chatbubbles" size={wp('5%')} color="#FFFFFF" />
                         </View>
                         <View>
-                            <Text style={styles.headerText}>Financial Advisor</Text>
-                            <Text style={{ fontSize: wp('2.8%'), color: COLORS.secondary }}>Powered by FinFit AI</Text>
+                            <Text style={[styles.headerText, isLight && { color: '#0F172A' }]}>
+                                {t("Financial Advisor") || "Financial Advisor"}
+                            </Text>
+                            <Text style={{ fontSize: wp('2.8%'), color: isLight ? '#059669' : COLORS.secondary }}>
+                                {t("Powered by FinFit AI") || "Powered by FinFit AI"}
+                            </Text>
                         </View>
                     </View>
                     <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                        <Ionicons name="close-circle" size={wp('7%')} color={COLORS.text.secondary} />
+                        <Ionicons name="close-circle" size={wp('7%')} color={isLight ? '#64748B' : COLORS.text.secondary} />
                     </TouchableOpacity>
                 </View>
 
@@ -186,45 +212,59 @@ const ChatInterface = ({ summary, transactions, onClose }) => {
                     data={messages}
                     renderItem={renderMessage}
                     keyExtractor={item => item.id}
-                    contentContainerStyle={styles.messagesList}
+                    contentContainerStyle={[styles.messagesList, isLight && { backgroundColor: '#F8F9FA' }]}
                     onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
                     onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
                     ListFooterComponent={
                         isLoading ? (
                             <View style={styles.loadingContainer}>
-                                <ActivityIndicator color={COLORS.secondary} size="small" />
-                                <Text style={styles.loadingText}>Thinking...</Text>
+                                <ActivityIndicator color={isLight ? '#059669' : COLORS.secondary} size="small" />
+                                <Text style={[styles.loadingText, isLight && { color: '#64748B' }]}>
+                                    {t("Thinking...") || "Thinking..."}
+                                </Text>
                             </View>
                         ) : null
                     }
                 />
 
-                <View style={[styles.inputWrapper, { paddingBottom: Math.max(insets.bottom, hp('1.5%')) }]}>
+                <View style={[
+                    styles.inputWrapper,
+                    { paddingBottom: Math.max(insets.bottom, hp('1.5%')) },
+                    isLight && { backgroundColor: '#FFFFFF', borderTopColor: '#E2E8F0' }
+                ]}>
                     {/* Quick suggestion chips */}
                     <ScrollView
                         horizontal
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.suggestionRow}
                     >
-                        {SUGGESTED_QUERIES.map((q, idx) => (
+                        {suggestedQueries.map((q, idx) => (
                             <TouchableOpacity
                                 key={idx}
-                                style={styles.suggestionChip}
+                                style={[
+                                    styles.suggestionChip,
+                                    isLight && { backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }
+                                ]}
                                 onPress={() => handleSend(q)}
                                 disabled={isLoading}
                             >
-                                <Text style={styles.suggestionChipText}>{q}</Text>
+                                <Text style={[
+                                    styles.suggestionChipText,
+                                    isLight && { color: '#0F172A' }
+                                ]}>
+                                    {q}
+                                </Text>
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
 
-                    <View style={styles.inputContainer}>
+                    <View style={[styles.inputContainer, isLight && { backgroundColor: '#F1F5F9' }]}>
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, isLight && { color: '#0F172A' }]}
                             value={inputText}
                             onChangeText={setInputText}
-                            placeholder="Ask about your finances..."
-                            placeholderTextColor={COLORS.text.secondary}
+                            placeholder={t("Ask about your finances...") || "Ask about your finances..."}
+                            placeholderTextColor={isLight ? '#94A3B8' : COLORS.text.secondary}
                             multiline
                             editable={!isLoading}
                             maxLength={500}

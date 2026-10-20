@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   ScrollView,
   View,
@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   StatusBar,
   Modal,
+  DeviceEventEmitter,
 } from "react-native";
 import { LineChart, PieChart } from "react-native-chart-kit";
 import { COLORS } from "../../../constants/theme";
@@ -23,13 +24,16 @@ import ChatGuidePointer from "../../../components/ChatGuidePointet";
 import LottieView from "lottie-react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTranslation } from "react-i18next";
 
 const TIMEFRAMES = ["month", "quarter", "year"];
 
 const Analysis = () => {
+  const { t } = useTranslation();
   const navigation = useNavigation();
   // Get necessary data and functions from the global context
   const { state, convertAmount } = useGlobalContext();
+  const isLight = state?.theme === "light";
   const { summary, transactions, budgets, defaultCurrency, currencies } = state;
   const [loadedBudgets, setLoadedBudgets] = useState(budgets || []);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -60,6 +64,24 @@ const Analysis = () => {
       };
     }, [])
   );
+
+  // Reload immediately when data is synced from another device
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("FINFIT_DATA_SYNCED", async () => {
+      try {
+        const stored = await AsyncStorage.getItem("APP_BUDGETS");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setLoadedBudgets(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn("Could not reload budgets in Analysis on sync:", e);
+      }
+    });
+    return () => sub?.remove();
+  }, []);
 
   const activeBudgets = useMemo(() => {
     if (loadedBudgets && loadedBudgets.length > 0) return loadedBudgets;
@@ -215,7 +237,7 @@ const Analysis = () => {
         strokeWidth: 2,
       },
     ],
-    legend: ["Expenses", "Income"],
+    legend: [t("Expenses"), t("Income")],
   };
 
   // Consistent color assignment for categories
@@ -228,13 +250,14 @@ const Analysis = () => {
 
   const categoryChartData = categoryNames.map((category, index) => {
     const data = processedData.categoryData[category];
+    const localizedCategory = t(category) || category;
     return {
-      name: category,
-      fullName: category,
+      name: localizedCategory,
+      fullName: localizedCategory,
       amount: data.amount,
       budget: data.budget,
       color: colors[index % colors.length],
-      legendFontColor: COLORS.text.primary,
+      legendFontColor: isLight ? "#0F172A" : COLORS.text.primary,
       legendFontSize: wp("3%"),
       percentageUsed:
         data.budget > 0 ? (data.amount / data.budget) * 100 : 0,
@@ -249,7 +272,7 @@ const Analysis = () => {
           <View
             style={[styles.legendColor, { backgroundColor: item.color }]}
           />
-          <Text style={styles.legendText} numberOfLines={1}>
+          <Text style={[styles.legendText, isLight && { color: "#0F172A" }]} numberOfLines={1}>
             {item.name.length > 12 ? item.name.substring(0, 10) + "..." : item.name}
             {" "}({((item.amount / processedData.totalSpent) * 100).toFixed(1)}%)
           </Text>
@@ -260,7 +283,7 @@ const Analysis = () => {
 
   // Timeframe selector component
   const TimeframeSelector = () => (
-    <View style={styles.timeframeContainer}>
+    <View style={[styles.timeframeContainer, isLight && { backgroundColor: "#E2E8F0" }]}>
       {TIMEFRAMES.map((timeframe) => (
         <TouchableOpacity
           key={timeframe}
@@ -273,10 +296,11 @@ const Analysis = () => {
           <Text
             style={[
               styles.timeframeText,
+              isLight && { color: "#64748B" },
               selectedTimeframe === timeframe && styles.timeframeTextActive,
             ]}
           >
-            {timeframe.charAt(0).toUpperCase() + timeframe.slice(1)}
+            {t(timeframe.charAt(0).toUpperCase() + timeframe.slice(1))}
           </Text>
         </TouchableOpacity>
       ))}
@@ -315,11 +339,11 @@ const Analysis = () => {
   }, [activeBudgets, processedData.categoryData, colors]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, isLight && { backgroundColor: "#F8F9FA" }]}>
       <StatusBar
         translucent
         backgroundColor="transparent"
-        barStyle="light-content"
+        barStyle={isLight ? "dark-content" : "light-content"}
       />
       <Header seachIconShown={false} />
 
@@ -328,15 +352,15 @@ const Analysis = () => {
 
         {/* Summary Cards */}
         <View style={styles.summaryContainer}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Spent</Text>
-            <Text style={styles.summaryValue}>
+          <View style={[styles.summaryCard, isLight && { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0" }]}>
+            <Text style={[styles.summaryLabel, isLight && { color: "#64748B" }]}>{t("Total Spent")}</Text>
+            <Text style={[styles.summaryValue, isLight && { color: "#0F172A" }]}>
               {currencySymbol}
               {processedData.totalSpent.toFixed(2)}
             </Text>
           </View>
           <TouchableOpacity
-            style={styles.summaryCard}
+            style={[styles.summaryCard, isLight && { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0" }]}
             activeOpacity={0.8}
             onPress={() => {
               if (processedData.totalBudget === 0) {
@@ -344,7 +368,7 @@ const Analysis = () => {
               }
             }}
           >
-            <Text style={styles.summaryLabel}>Budget Utilized</Text>
+            <Text style={[styles.summaryLabel, isLight && { color: "#64748B" }]}>{t("Budget Utilized")}</Text>
             <Text
               style={[
                 styles.summaryValue,
@@ -352,17 +376,17 @@ const Analysis = () => {
                   color:
                     processedData.totalBudget > 0
                       ? getStatusColor(processedData.budgetUtilization)
-                      : COLORS.secondary,
+                      : (isLight ? "#64748B" : COLORS.secondary),
                 },
               ]}
             >
               {processedData.totalBudget > 0
                 ? `${processedData.budgetUtilization.toFixed(1)}%`
-                : "Not Set"}
+                : t("Not Set")}
             </Text>
             {processedData.totalBudget === 0 && (
-              <Text style={{ fontSize: wp("2.8%"), color: "rgba(255,255,255,0.7)", marginTop: 2 }}>
-                Tap to set in Budgets
+              <Text style={{ fontSize: wp("2.8%"), color: isLight ? "#64748B" : "rgba(255,255,255,0.7)", marginTop: 2 }}>
+                {t("Tap to set in Budgets")}
               </Text>
             )}
           </TouchableOpacity>
@@ -370,27 +394,27 @@ const Analysis = () => {
 
         {/* Spending Trend Chart */}
         {processedData.periodData.some(p => p.expenses > 0 || p.income > 0) && (
-          <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>Income vs Expenses Trend</Text>
+          <View style={[styles.chartContainer, isLight && { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0" }]}>
+            <Text style={[styles.chartTitle, isLight && { color: "#0F172A" }]}>{t("Income vs Expenses Trend")}</Text>
             <LineChart
               data={spendingTrendData}
               width={screenWidth - wp("12%")}
               height={220}
               yAxisLabel={currencySymbol}
               chartConfig={{
-                backgroundColor: COLORS.primary,
-                backgroundGradientFrom: COLORS.primary,
-                backgroundGradientTo: COLORS.primary,
+                backgroundColor: isLight ? "#FFFFFF" : COLORS.primary,
+                backgroundGradientFrom: isLight ? "#FFFFFF" : COLORS.primary,
+                backgroundGradientTo: isLight ? "#FFFFFF" : COLORS.primary,
                 decimalPlaces: 0,
-                color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-                labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                color: (opacity = 1) => isLight ? `rgba(15, 23, 42, ${opacity})` : `rgba(255, 255, 255, ${opacity})`,
+                labelColor: (opacity = 1) => isLight ? `rgba(100, 116, 139, ${opacity})` : `rgba(255, 255, 255, ${opacity})`,
                 style: {
                   borderRadius: 16,
                 },
                 propsForDots: {
                   r: "4",
                   strokeWidth: "2",
-                  stroke: COLORS.primary,
+                  stroke: isLight ? "#6366F1" : COLORS.primary,
                 },
                 propsForLabels: {
                   fontSize: wp("3%"),
@@ -417,16 +441,16 @@ const Analysis = () => {
 
         {/* Category Analysis */}
         {categoryChartData.length > 0 && (
-          <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>Spending by Category</Text>
+          <View style={[styles.chartContainer, isLight && { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0" }]}>
+            <Text style={[styles.chartTitle, isLight && { color: "#0F172A" }]}>{t("Spending by Category")}</Text>
             <View style={styles.pieChartContainer}>
               <PieChart
                 data={categoryChartData}
                 width={screenWidth - wp("40%")}
                 height={200}
                 chartConfig={{
-                  color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                  color: (opacity = 1) => isLight ? `rgba(15, 23, 42, ${opacity})` : `rgba(255, 255, 255, ${opacity})`,
+                  labelColor: (opacity = 1) => isLight ? `rgba(100, 116, 139, ${opacity})` : `rgba(255, 255, 255, ${opacity})`,
                 }}
                 accessor="amount"
                 backgroundColor="transparent"
@@ -442,31 +466,31 @@ const Analysis = () => {
 
         {/* Category Budget Progress */}
         {budgetProgressData.length > 0 && (
-          <View style={styles.categoryProgressContainer}>
-            <Text style={styles.chartTitle}>Budget Progress</Text>
-            <Text style={styles.chartSubtitle}>
-              Track your spending against set budgets
+          <View style={[styles.categoryProgressContainer, isLight && { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0" }]}>
+            <Text style={[styles.chartTitle, isLight && { color: "#0F172A" }]}>{t("Budget Progress")}</Text>
+            <Text style={[styles.chartSubtitle, isLight && { color: "#64748B" }]}>
+              {t("Track your spending against set budgets")}
             </Text>
             {budgetProgressData.map((item, index) => (
-              <View key={`${item.category}-${index}`} style={styles.progressCard}>
+              <View key={`${item.category}-${index}`} style={[styles.progressCard, isLight && { backgroundColor: "#F1F5F9" }]}>
                 <View style={styles.progressHeader}>
-                  <Text style={styles.categoryName}>{item.category}</Text>
+                  <Text style={[styles.categoryName, isLight && { color: "#0F172A" }]}>{t(item.category)}</Text>
                   <Text style={[
                     styles.percentageUsed,
                     { color: getStatusColor(item.percentageUsed) }
                   ]}>
-                    {item.percentageUsed.toFixed(1)}% used
+                    {item.percentageUsed.toFixed(1)}% {t("used")}
                   </Text>
                 </View>
                 <View style={styles.progressAmounts}>
-                  <Text style={styles.progressAmountText}>
+                  <Text style={[styles.progressAmountText, isLight && { color: "#0F172A" }]}>
                     {currencySymbol}{item.spent.toFixed(2)}
                   </Text>
-                  <Text style={styles.progressLimitText}>
-                    of {currencySymbol}{item.limit.toFixed(2)}
+                  <Text style={[styles.progressLimitText, isLight && { color: "#64748B" }]}>
+                    {t("of")} {currencySymbol}{item.limit.toFixed(2)}
                   </Text>
                 </View>
-                <View style={styles.progressBar}>
+                <View style={[styles.progressBar, isLight && { backgroundColor: "#E2E8F0" }]}>
                   <View
                     style={[
                       styles.progressFill,
@@ -479,7 +503,7 @@ const Analysis = () => {
                 </View>
                 {item.percentageUsed >= 100 && (
                   <Text style={styles.overBudgetText}>
-                    ⚠️ Over budget by {currencySymbol}{(item.spent - item.limit).toFixed(2)}
+                    ⚠️ {t("Over budget by")} {currencySymbol}{(item.spent - item.limit).toFixed(2)}
                   </Text>
                 )}
               </View>
@@ -490,9 +514,9 @@ const Analysis = () => {
         {/* Empty State */}
         {budgetProgressData.length === 0 && categoryChartData.length === 0 && (
           <View style={styles.emptyStateContainer}>
-            <Text style={styles.emptyStateTitle}>No Data Available</Text>
-            <Text style={styles.emptyStateText}>
-              Start adding transactions and setting budgets to see your analysis
+            <Text style={[styles.emptyStateTitle, isLight && { color: "#0F172A" }]}>{t("No Data Available")}</Text>
+            <Text style={[styles.emptyStateText, isLight && { color: "#64748B" }]}>
+              {t("Start adding transactions and setting budgets to see your analysis")}
             </Text>
           </View>
         )}

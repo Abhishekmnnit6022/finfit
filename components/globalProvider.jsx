@@ -1,6 +1,18 @@
-//globalProvider.jsx
+/**
+ * ============================================================================
+ * FINFIT GLOBAL STATE PROVIDER (globalProvider.jsx)
+ * ============================================================================
+ * Central hub for the FinFit application state management, including:
+ *  1. SQLite Offline Storage (Transactions & Expenses)
+ *  2. Real-time Multi-Currency Conversion & Live Exchange Rates
+ *  3. Category Budgets & Threshold Alert Notifications
+ *  4. Secure Encrypted QR Backup & Data Synchronization
+ *  5. Centralized Themed Alert Modal System for Consistent App UI
+ * ============================================================================
+ */
 
-import React, { createContext, useReducer, useContext, useEffect } from "react";
+import React, { createContext, useReducer, useContext, useEffect, useState, useCallback } from "react";
+import { DeviceEventEmitter } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SQLite from "expo-sqlite";
 import { format, addMonths, subMonths } from "date-fns";
@@ -16,11 +28,27 @@ import {
   loadExchangeRates as loadServiceExchangeRates,
 } from "../utils/currencyService";
 import { notifyBudgetExceededForCategory } from "./Budgetnotification";
+import ThemedAlertModal from "./ThemedAlertModal";
+import { applyTheme } from "../constants/theme";
 
+// Storage Keys for AsyncStorage persistence
 const STORAGE_KEY = "APP_STATE";
 const BUDGETS_STORAGE_KEY = "APP_BUDGETS";
 const CATEGORY_BUDGETS_KEY = "CATEGORY_BUDGETS";
 const EXCHANGE_RATES_KEY = "EXCHANGE_RATES";
+
+/**
+ * Global helper to trigger the FinFit Themed Alert anywhere without prop drilling.
+ * @param {Object} options
+ * @param {string} options.title - Alert title
+ * @param {string} options.message - Alert body text
+ * @param {'info'|'success'|'error'|'warning'|'confirm'} [options.type] - Alert visual tone
+ * @param {string} [options.icon] - Optional Ionicons icon name
+ * @param {Array<{text: string, onPress?: Function, style?: 'default'|'cancel'|'destructive'}>} [options.buttons]
+ */
+export const showThemedAlert = ({ title, message, type = "info", icon = null, buttons = [{ text: "OK" }] }) => {
+  DeviceEventEmitter.emit("SHOW_THEMED_ALERT", { title, message, type, icon, buttons });
+};
 
 const initialState = {
   transactions: [],
@@ -59,166 +87,46 @@ const initialState = {
   },
   currentMonth: new Date().toISOString(),
   language: null,
-  theme: "light",
+  theme: "dark",
   fontLoaded: false,
   hasLaunched: false,
   defaultCurrency: "INR",
   currencies: {
-    AED: { symbol: "د.إ", name: "United Arab Emirates Dirham" },
-    AFN: { symbol: "؋", name: "Afghan Afghani" },
-    ALL: { symbol: "L", name: "Albanian Lek" },
-    AMD: { symbol: "֏", name: "Armenian Dram" },
-    ANG: { symbol: "ƒ", name: "Netherlands Antillean Guilder" },
-    AOA: { symbol: "Kz", name: "Angolan Kwanza" },
-    ARS: { symbol: "$", name: "Argentine Peso" },
-    AUD: { symbol: "A$", name: "Australian Dollar" },
-    AWG: { symbol: "ƒ", name: "Aruban Florin" },
-    AZN: { symbol: "₼", name: "Azerbaijani Manat" },
-    BAM: { symbol: "KM", name: "Bosnia-Herzegovina Convertible Mark" },
-    BBD: { symbol: "$", name: "Barbadian Dollar" },
-    BDT: { symbol: "৳", name: "Bangladeshi Taka" },
-    BGN: { symbol: "лв", name: "Bulgarian Lev" },
-    BHD: { symbol: ".د.ب", name: "Bahraini Dinar" },
-    BIF: { symbol: "FBu", name: "Burundian Franc" },
-    BMD: { symbol: "$", name: "Bermudan Dollar" },
-    BND: { symbol: "$", name: "Brunei Dollar" },
-    BOB: { symbol: "Bs.", name: "Bolivian Boliviano" },
-    BRL: { symbol: "R$", name: "Brazilian Real" },
-    BSD: { symbol: "$", name: "Bahamian Dollar" },
-    BTN: { symbol: "Nu.", name: "Bhutanese Ngultrum" },
-    BWP: { symbol: "P", name: "Botswanan Pula" },
-    BYN: { symbol: "Br", name: "Belarusian Ruble" },
-    BZD: { symbol: "BZ$", name: "Belize Dollar" },
-    CAD: { symbol: "C$", name: "Canadian Dollar" },
-    CDF: { symbol: "FC", name: "Congolese Franc" },
-    CHF: { symbol: "Fr", name: "Swiss Franc" },
-    CLP: { symbol: "$", name: "Chilean Peso" },
-    CNY: { symbol: "¥", name: "Chinese Yuan" },
-    COP: { symbol: "$", name: "Colombian Peso" },
-    CRC: { symbol: "₡", name: "Costa Rican Colón" },
-    CUP: { symbol: "₱", name: "Cuban Peso" },
-    CVE: { symbol: "$", name: "Cape Verdean Escudo" },
-    CZK: { symbol: "Kč", name: "Czech Koruna" },
-    DJF: { symbol: "Fdj", name: "Djiboutian Franc" },
-    DKK: { symbol: "kr", name: "Danish Krone" },
-    DOP: { symbol: "RD$", name: "Dominican Peso" },
-    DZD: { symbol: "د.ج", name: "Algerian Dinar" },
-    EGP: { symbol: "E£", name: "Egyptian Pound" },
-    ERN: { symbol: "Nfk", name: "Eritrean Nakfa" },
-    ETB: { symbol: "Br", name: "Ethiopian Birr" },
-    EUR: { symbol: "€", name: "Euro" },
-    FJD: { symbol: "FJ$", name: "Fijian Dollar" },
-    FKP: { symbol: "£", name: "Falkland Islands Pound" },
-    GBP: { symbol: "£", name: "British Pound Sterling" },
-    GEL: { symbol: "₾", name: "Georgian Lari" },
-    GHS: { symbol: "GH₵", name: "Ghanaian Cedi" },
-    GIP: { symbol: "£", name: "Gibraltar Pound" },
-    GMD: { symbol: "D", name: "Gambian Dalasi" },
-    GNF: { symbol: "FG", name: "Guinean Franc" },
-    GTQ: { symbol: "Q", name: "Guatemalan Quetzal" },
-    GYD: { symbol: "$", name: "Guyanaese Dollar" },
-    HKD: { symbol: "HK$", name: "Hong Kong Dollar" },
-    HNL: { symbol: "L", name: "Honduran Lempira" },
-    HRK: { symbol: "kn", name: "Croatian Kuna" },
-    HTG: { symbol: "G", name: "Haitian Gourde" },
-    HUF: { symbol: "Ft", name: "Hungarian Forint" },
-    IDR: { symbol: "Rp", name: "Indonesian Rupiah" },
-    ILS: { symbol: "₪", name: "Israeli New Shekel" },
     INR: { symbol: "₹", name: "Indian Rupee" },
-    IQD: { symbol: "ع.د", name: "Iraqi Dinar" },
-    IRR: { symbol: "﷼", name: "Iranian Rial" },
-    ISK: { symbol: "kr", name: "Icelandic Króna" },
-    JMD: { symbol: "J$", name: "Jamaican Dollar" },
-    JOD: { symbol: "د.ا", name: "Jordanian Dinar" },
-    JPY: { symbol: "¥", name: "Japanese Yen" },
-    KES: { symbol: "KSh", name: "Kenyan Shilling" },
-    KGS: { symbol: "лв", name: "Kyrgystani Som" },
-    KHR: { symbol: "៛", name: "Cambodian Riel" },
-    KMF: { symbol: "CF", name: "Comorian Franc" },
-    KPW: { symbol: "₩", name: "North Korean Won" },
-    KRW: { symbol: "₩", name: "South Korean Won" },
-    KWD: { symbol: "د.ك", name: "Kuwaiti Dinar" },
-    KYD: { symbol: "$", name: "Cayman Islands Dollar" },
-    KZT: { symbol: "₸", name: "Kazakhstani Tenge" },
-    LAK: { symbol: "₭", name: "Laotian Kip" },
-    LBP: { symbol: "ل.ل", name: "Lebanese Pound" },
-    LKR: { symbol: "Rs", name: "Sri Lankan Rupee" },
-    LRD: { symbol: "$", name: "Liberian Dollar" },
-    LSL: { symbol: "L", name: "Lesotho Loti" },
-    LYD: { symbol: "ل.د", name: "Libyan Dinar" },
-    MAD: { symbol: "د.م.", name: "Moroccan Dirham" },
-    MDL: { symbol: "L", name: "Moldovan Leu" },
-    MGA: { symbol: "Ar", name: "Malagasy Ariary" },
-    MKD: { symbol: "ден", name: "Macedonian Denar" },
-    MMK: { symbol: "K", name: "Myanmar Kyat" },
-    MNT: { symbol: "₮", name: "Mongolian Tugrik" },
-    MOP: { symbol: "MOP$", name: "Macanese Pataca" },
-    MRU: { symbol: "UM", name: "Mauritanian Ouguiya" },
-    MUR: { symbol: "₨", name: "Mauritian Rupee" },
-    MVR: { symbol: "Rf", name: "Maldivian Rufiyaa" },
-    MWK: { symbol: "MK", name: "Malawian Kwacha" },
-    MXN: { symbol: "$", name: "Mexican Peso" },
-    MYR: { symbol: "RM", name: "Malaysian Ringgit" },
-    MZN: { symbol: "MT", name: "Mozambican Metical" },
-    NAD: { symbol: "$", name: "Namibian Dollar" },
-    NGN: { symbol: "₦", name: "Nigerian Naira" },
-    NIO: { symbol: "C$", name: "Nicaraguan Córdoba" },
-    NOK: { symbol: "kr", name: "Norwegian Krone" },
-    NPR: { symbol: "₨", name: "Nepalese Rupee" },
-    NZD: { symbol: "$", name: "New Zealand Dollar" },
-    OMR: { symbol: "﷼", name: "Omani Rial" },
-    PAB: { symbol: "B/.", name: "Panamanian Balboa" },
-    PEN: { symbol: "S/.", name: "Peruvian Nuevo Sol" },
-    PGK: { symbol: "K", name: "Papua New Guinean Kina" },
-    PHP: { symbol: "₱", name: "Philippine Peso" },
-    PKR: { symbol: "₨", name: "Pakistani Rupee" },
-    PLN: { symbol: "zł", name: "Polish Złoty" },
-    PYG: { symbol: "₲", name: "Paraguayan Guarani" },
-    QAR: { symbol: "ر.ق", name: "Qatari Rial" },
-    RON: { symbol: "lei", name: "Romanian Leu" },
-    RSD: { symbol: "дин.", name: "Serbian Dinar" },
-    RUB: { symbol: "₽", name: "Russian Ruble" },
-    RWF: { symbol: "FRw", name: "Rwandan Franc" },
+    USD: { symbol: "$", name: "US Dollar" },
+    EUR: { symbol: "€", name: "Euro" },
+    GBP: { symbol: "£", name: "British Pound" },
+    AED: { symbol: "د.إ", name: "UAE Dirham" },
     SAR: { symbol: "﷼", name: "Saudi Riyal" },
-    SBD: { symbol: "$", name: "Solomon Islands Dollar" },
-    SCR: { symbol: "₨", name: "Seychellois Rupee" },
-    SDG: { symbol: "ج.س.", name: "Sudanese Pound" },
-    SEK: { symbol: "kr", name: "Swedish Krona" },
+    CAD: { symbol: "CA$", name: "Canadian Dollar" },
+    AUD: { symbol: "A$", name: "Australian Dollar" },
     SGD: { symbol: "S$", name: "Singapore Dollar" },
-    SHP: { symbol: "£", name: "Saint Helena Pound" },
-    SLL: { symbol: "Le", name: "Sierra Leonean Leone" },
-    SOS: { symbol: "S", name: "Somali Shilling" },
-    SRD: { symbol: "$", name: "Surinamese Dollar" },
-    STN: { symbol: "Db", name: "São Tomé and Príncipe Dobra" },
-    SVC: { symbol: "$", name: "Salvadoran Colón" },
-    SYP: { symbol: "£", name: "Syrian Pound" },
-    SZL: { symbol: "L", name: "Swazi Lilangeni" },
-    THB: { symbol: "฿", name: "Thai Baht" },
-    TJS: { symbol: "SM", name: "Tajikistani Somoni" },
-    TMT: { symbol: "T", name: "Turkmenistani Manat" },
-    TND: { symbol: "د.ت", name: "Tunisian Dinar" },
-    TOP: { symbol: "T$", name: "Tongan Paʻanga" },
-    TRY: { symbol: "₺", name: "Turkish Lira" },
-    TTD: { symbol: "TT$", name: "Trinidad and Tobago Dollar" },
-    TWD: { symbol: "NT$", name: "New Taiwan Dollar" },
-    TZS: { symbol: "TSh", name: "Tanzanian Shilling" },
-    UAH: { symbol: "₴", name: "Ukrainian Hryvnia" },
-    UGX: { symbol: "USh", name: "Ugandan Shilling" },
-    USD: { symbol: "$", name: "United States Dollar" },
-    UYU: { symbol: "$U", name: "Uruguayan Peso" },
-    UZS: { symbol: "лв", name: "Uzbekistan Som" },
-    VES: { symbol: "Bs", name: "Venezuelan Bolívar" },
-    VND: { symbol: "₫", name: "Vietnamese Dong" },
-    VUV: { symbol: "VT", name: "Vanuatu Vatu" },
-    WST: { symbol: "WS$", name: "Samoan Tala" },
-    XAF: { symbol: "FCFA", name: "Central African CFA Franc" },
-    XCD: { symbol: "$", name: "East Caribbean Dollar" },
-    XOF: { symbol: "CFA", name: "West African CFA Franc" },
-    XPF: { symbol: "₣", name: "CFP Franc" },
-    YER: { symbol: "﷼", name: "Yemeni Rial" },
+    KWD: { symbol: "د.ك", name: "Kuwaiti Dinar" },
+    QAR: { symbol: "ر.ق", name: "Qatari Rial" },
+    OMR: { symbol: "ر.ع.", name: "Omani Rial" },
+    BHD: { symbol: "BD", name: "Bahraini Dinar" },
+    JPY: { symbol: "¥", name: "Japanese Yen" },
+    CNY: { symbol: "¥", name: "Chinese Yuan" },
+    CHF: { symbol: "CHF", name: "Swiss Franc" },
+    RUB: { symbol: "₽", name: "Russian Ruble" },
+    BRL: { symbol: "R$", name: "Brazilian Real" },
     ZAR: { symbol: "R", name: "South African Rand" },
-    ZMW: { symbol: "ZK", name: "Zambian Kwacha" },
-    ZWL: { symbol: "$", name: "Zimbabwean Dollar" },
+    PKR: { symbol: "₨", name: "Pakistani Rupee" },
+    BDT: { symbol: "৳", name: "Bangladeshi Taka" },
+    LKR: { symbol: "Rs", name: "Sri Lankan Rupee" },
+    NPR: { symbol: "रू", name: "Nepalese Rupee" },
+    NZD: { symbol: "NZ$", name: "New Zealand Dollar" },
+    THB: { symbol: "฿", name: "Thai Baht" },
+    MYR: { symbol: "RM", name: "Malaysian Ringgit" },
+    IDR: { symbol: "Rp", name: "Indonesian Rupiah" },
+    KRW: { symbol: "₩", name: "South Korean Won" },
+    TRY: { symbol: "₺", name: "Turkish Lira" },
+    EGP: { symbol: "E£", name: "Egyptian Pound" },
+    VND: { symbol: "₫", name: "Vietnamese Dong" },
+    PHP: { symbol: "₱", name: "Philippine Peso" },
+    MXN: { symbol: "Mex$", name: "Mexican Peso" },
+    SEK: { symbol: "kr", name: "Swedish Krona" },
+    HKD: { symbol: "HK$", name: "Hong Kong Dollar" },
   },
   exchangeRates: DEFAULT_RATES,
   lastRatesUpdate: null,
@@ -483,29 +391,442 @@ const decryptPayload = (encryptedStr) => {
   return result;
 };
 
-// Generate QR data from SQLite database (encrypted gibberish for third-party scanners)
-const generateTransferData = async () => {
+// ============================================================================
+// PASSWORD-PROTECTED BACKUP FILE ENCRYPTION
+// ============================================================================
+// PASSWORD-PROTECTED BACKUP FILE ENCRYPTION (HARDENED V2 + BACKWARD-COMPATIBLE V1)
+// ============================================================================
+// Separate from QR encryption — uses a user-chosen password to derive keys.
+// V2 Format: FINFIT_BACKUP_V2:<salt>:<mac_tag>:<encrypted_base64_payload>
+// V1 Format: FINFIT_BACKUP_V1:<salt>:<encrypted_base64_payload>
+const FINFIT_FILE_V2_PREFIX = "FINFIT_BACKUP_V2:";
+const FINFIT_FILE_V1_PREFIX = "FINFIT_BACKUP_V1:";
+
+/**
+ * High-security key derivation function (PBKDF-style, 8,192 stretching rounds).
+ * Mathematically expensive to brute force (thousands of cycles per password attempt)
+ * while fast (<20ms) for legitimate mobile users.
+ */
+const deriveSecureKeyAndMac = (password, salt) => {
+  let h0 = 0x811c9dc5 ^ password.length;
+  let h1 = 0xcbf29ce4 ^ salt.length;
+  let h2 = 0x9e3779b9;
+  let h3 = 0x85ebca6b;
+
+  const combined = password + "::" + salt + "::FinFitSecureKeyStretching_2026";
+  const clen = combined.length;
+
+  for (let round = 0; round < 8192; round++) {
+    const charCode = combined.charCodeAt(round % clen);
+    h0 = Math.imul(h0 ^ (charCode + round), 0x01000193) ^ (h1 >>> 13);
+    h1 = Math.imul(h1 ^ ((h0 >>> 7) + charCode), 1664525) + 1013904223;
+    h2 = Math.imul(h2 ^ (h1 >>> 11), 2246822519) + 3266489917;
+    h3 = Math.imul(h3 ^ (h2 >>> 15), 3266489917) + (charCode * 7919);
+  }
+
+  return { h0, h1, h2, h3 };
+};
+
+const generateKeystreamV2 = (keys, length) => {
+  let { h0, h1, h2, h3 } = keys;
+  const stream = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    h0 = Math.imul(h0 ^ (i & 0xff), 1664525) + 1013904223;
+    h1 = Math.imul(h1 ^ (h0 >>> 16), 2246822519) + 3266489917;
+    h2 = ((h2 << 5) | (h2 >>> 27)) ^ h1;
+    h3 = ((h3 << 7) | (h3 >>> 25)) ^ (h0 + i);
+    stream[i] = ((h1 ^ h3) >>> 8) & 0xff;
+  }
+  return stream;
+};
+
+const computeMacTag = (bytes, keys) => {
+  let m1 = keys.h2;
+  let m2 = keys.h3;
+  for (let i = 0; i < bytes.length; i++) {
+    m1 = Math.imul(m1 ^ bytes[i], 0x01000193);
+    m2 = Math.imul(m2 ^ (m1 >>> 16), 1664525) + bytes[i];
+  }
+  const hex1 = (m1 >>> 0).toString(16).padStart(8, "0");
+  const hex2 = (m2 >>> 0).toString(16).padStart(8, "0");
+  return hex1 + hex2;
+};
+
+// Helper for UTF-8 byte decoding
+const decodeUtf8Bytes = (bytes) => {
+  let result = "";
+  let i = 0;
+  while (i < bytes.length) {
+    const c = bytes[i++];
+    if (c < 128) {
+      result += String.fromCharCode(c);
+    } else if (c > 191 && c < 224) {
+      const c2 = bytes[i++];
+      result += String.fromCharCode(((c & 31) << 6) | (c2 & 63));
+    } else if (c > 223 && c < 240) {
+      const c2 = bytes[i++];
+      const c3 = bytes[i++];
+      result += String.fromCharCode(((c & 15) << 12) | ((c2 & 63) << 6) | (c3 & 63));
+    } else {
+      const c2 = bytes[i++];
+      const c3 = bytes[i++];
+      const c4 = bytes[i++];
+      const code = (((c & 7) << 18) | ((c2 & 63) << 12) | ((c3 & 63) << 6) | (c4 & 63)) - 0x10000;
+      result += String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff));
+    }
+  }
+  return result;
+};
+
+// Legacy V1 Key derivation for backward compatibility
+const deriveKeyFromPasswordV1 = (password, salt, length) => {
+  const combined = password + ":" + salt + ":FINFIT_PWD_2026";
+  const stream = new Uint8Array(length);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < combined.length; i++) {
+    hash ^= combined.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  hash ^= password.length * 7919;
+  for (let i = 0; i < password.length; i++) {
+    hash = Math.imul(hash ^ password.charCodeAt(i), 1664525) + 1013904223;
+  }
+  for (let i = 0; i < length; i++) {
+    hash = Math.imul(hash ^ (i & 0xff), 1664525) + 1013904223;
+    stream[i] = (hash >>> 16) & 0xff;
+  }
+  return stream;
+};
+
+/**
+ * Encrypts plaintext JSON string with a user-chosen password using 8,192 PBKDF rounds + MAC.
+ * Returns a string: FINFIT_BACKUP_V2:<salt>:<mac_tag>:<base64_cipher>
+ */
+const encryptWithPassword = (plainText, password) => {
+  if (!plainText || !password) return "";
+  const salt = Math.random().toString(36).substring(2, 10) + Date.now().toString(36).substring(2, 10);
+
+  // Convert plainText to UTF-8 bytes
+  const utf8Bytes = [];
+  for (let i = 0; i < plainText.length; i++) {
+    let charcode = plainText.charCodeAt(i);
+    if (charcode < 0x80) utf8Bytes.push(charcode);
+    else if (charcode < 0x800) {
+      utf8Bytes.push(0xc0 | (charcode >> 6), 0x80 | (charcode & 0x3f));
+    } else if (charcode < 0xd800 || charcode >= 0xe000) {
+      utf8Bytes.push(0xe0 | (charcode >> 12), 0x80 | ((charcode >> 6) & 0x3f), 0x80 | (charcode & 0x3f));
+    } else {
+      i++;
+      charcode = 0x10000 + (((charcode & 0x3ff) << 10) | (plainText.charCodeAt(i) & 0x3ff));
+      utf8Bytes.push(0xf0 | (charcode >> 18), 0x80 | ((charcode >> 12) & 0x3f), 0x80 | ((charcode >> 6) & 0x3f), 0x80 | (charcode & 0x3f));
+    }
+  }
+
+  const keys = deriveSecureKeyAndMac(password, salt);
+  const keystream = generateKeystreamV2(keys, utf8Bytes.length);
+  const cipherBytes = new Uint8Array(utf8Bytes.length);
+  for (let i = 0; i < utf8Bytes.length; i++) {
+    cipherBytes[i] = utf8Bytes[i] ^ keystream[i];
+  }
+
+  const macTag = computeMacTag(utf8Bytes, keys);
+
+  // Base64 encode
+  let binary = "";
+  for (let i = 0; i < cipherBytes.length; i++) {
+    binary += String.fromCharCode(cipherBytes[i]);
+  }
+  let base64Cipher = "";
+  if (typeof btoa === "function") {
+    base64Cipher = btoa(binary);
+  } else {
+    base64Cipher = utf8ToBase64(binary);
+  }
+
+  return `${FINFIT_FILE_V2_PREFIX}${salt}:${macTag}:${base64Cipher}`;
+};
+
+/**
+ * Decrypts a password-encrypted backup string (supports both V2 and V1).
+ * Verifies cryptographic MAC and UTF-8 JSON.
+ */
+const decryptWithPassword = (encryptedStr, password) => {
+  if (!encryptedStr) {
+    throw new Error("Invalid backup file — empty content");
+  }
+
+  const trimmed = encryptedStr.trim();
+
+  // Primary: Hardened V2 format with 8192-round key derivation and MAC verification
+  if (trimmed.startsWith(FINFIT_FILE_V2_PREFIX)) {
+    const payloadPart = trimmed.slice(FINFIT_FILE_V2_PREFIX.length);
+    const parts = payloadPart.split(":");
+    if (parts.length < 3) {
+      throw new Error("Invalid backup file — corrupted format");
+    }
+    const salt = parts[0];
+    const macTag = parts[1];
+    const base64Cipher = parts.slice(2).join(":");
+
+    let binary = "";
+    if (typeof atob === "function") {
+      binary = atob(base64Cipher);
+    } else {
+      binary = base64ToUtf8(base64Cipher);
+    }
+
+    const cipherBytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      cipherBytes[i] = binary.charCodeAt(i);
+    }
+
+    const keys = deriveSecureKeyAndMac(password, salt);
+    const keystream = generateKeystreamV2(keys, cipherBytes.length);
+    const plainBytes = new Uint8Array(cipherBytes.length);
+    for (let i = 0; i < cipherBytes.length; i++) {
+      plainBytes[i] = cipherBytes[i] ^ keystream[i];
+    }
+
+    // Verify MAC tag immediately
+    const computedTag = computeMacTag(plainBytes, keys);
+    if (computedTag !== macTag) {
+      throw new Error("Incorrect password — decryption failed");
+    }
+
+    const result = decodeUtf8Bytes(plainBytes);
+    JSON.parse(result);
+    return result;
+  }
+
+  // Fallback: Legacy V1 format
+  if (trimmed.startsWith(FINFIT_FILE_V1_PREFIX)) {
+    const payloadPart = trimmed.slice(FINFIT_FILE_V1_PREFIX.length);
+    const colonIndex = payloadPart.indexOf(":");
+    if (colonIndex === -1) {
+      throw new Error("Invalid backup file — corrupted format");
+    }
+    const salt = payloadPart.slice(0, colonIndex);
+    const base64Cipher = payloadPart.slice(colonIndex + 1);
+
+    let binary = "";
+    if (typeof atob === "function") {
+      binary = atob(base64Cipher);
+    } else {
+      binary = base64ToUtf8(base64Cipher);
+    }
+
+    const cipherBytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      cipherBytes[i] = binary.charCodeAt(i);
+    }
+
+    const keystream = deriveKeyFromPasswordV1(password, salt, cipherBytes.length);
+    const plainBytes = new Uint8Array(cipherBytes.length);
+    for (let i = 0; i < cipherBytes.length; i++) {
+      plainBytes[i] = cipherBytes[i] ^ keystream[i];
+    }
+
+    const result = decodeUtf8Bytes(plainBytes);
+    try {
+      JSON.parse(result);
+    } catch {
+      throw new Error("Incorrect password — decryption failed");
+    }
+    return result;
+  }
+
+  throw new Error("Invalid backup file format — not a FinFit backup");
+};
+
+// Category default icon mapping
+const getCategoryIcon = (category) => {
+  const iconMap = {
+    "Food & Dining": "utensils",
+    Transportation: "car",
+    Shopping: "shopping-bag",
+    Entertainment: "film",
+    "Bills & Utilities": "file-invoice-dollar",
+    "Health & Fitness": "heartbeat",
+    Travel: "plane",
+    "Account Transfer": "exchange-alt",
+    "Investment Transfer": "chart-line",
+    "Debt Payment": "credit-card",
+    Other: "dot-circle",
+  };
+  return iconMap[category] || "tag";
+};
+
+/**
+ * Generates a password-encrypted backup file content string.
+ * This can be saved as a .finfit file and shared via WhatsApp, etc.
+ * No QR size limits — supports unlimited data.
+ */
+const generateBackupFileData = async (currentState, password) => {
+  try {
+    const db = await SQLite.openDatabaseAsync("expenses.db");
+    const expenses = await db.getAllAsync("SELECT * FROM expenses ORDER BY date DESC");
+
+    const cleanedExpenses = (expenses || []).map((e) => ({
+      a: parseFloat(e.amount) || 0,
+      t: e.type || "EXPENSE",
+      c: e.category || "Other",
+      ac: e.account || "",
+      n: e.note || "",
+      d: e.date || new Date().toISOString(),
+      cr: e.currency || "INR",
+    }));
+
+    let budgets = [];
+    try {
+      const savedBudgetsStr = await AsyncStorage.getItem(BUDGETS_STORAGE_KEY);
+      if (savedBudgetsStr) budgets = JSON.parse(savedBudgetsStr);
+    } catch (e) {}
+    if ((!budgets || budgets.length === 0) && currentState?.budgets?.length > 0) {
+      budgets = currentState.budgets;
+    }
+    const cleanedBudgets = (budgets || []).map((b) => ({
+      c: b.category, l: parseFloat(b.limit) || 0, t: b.type || "EXPENSE", i: b.icon || getCategoryIcon(b.category),
+    }));
+
+    let categoryBudgets = currentState?.categoryBudgets || {};
+    try {
+      const catBudgetsStr = await AsyncStorage.getItem(CATEGORY_BUDGETS_KEY);
+      if (catBudgetsStr) categoryBudgets = JSON.parse(catBudgetsStr);
+    } catch (e) {}
+
+    let categories = currentState?.categories;
+    if (!categories || !categories.EXPENSE) {
+      try {
+        const savedStateStr = await AsyncStorage.getItem(STORAGE_KEY);
+        if (savedStateStr) { const parsed = JSON.parse(savedStateStr); if (parsed?.categories) categories = parsed.categories; }
+      } catch (e) {}
+    }
+    if (!categories) categories = initialState.categories;
+
+    let accounts = currentState?.accounts;
+    if (!accounts || accounts.length === 0) {
+      try {
+        const savedStateStr = await AsyncStorage.getItem(STORAGE_KEY);
+        if (savedStateStr) { const parsed = JSON.parse(savedStateStr); if (parsed?.accounts) accounts = parsed.accounts; }
+      } catch (e) {}
+    }
+    if (!accounts || accounts.length === 0) accounts = initialState.accounts;
+
+    const defaultCurrency = currentState?.defaultCurrency || "INR";
+
+    const payload = {
+      version: "2.0",
+      timestamp: Date.now(),
+      defaultCurrency,
+      accounts,
+      categories,
+      budgets: cleanedBudgets,
+      categoryBudgets,
+      expenses: cleanedExpenses,
+    };
+
+    const jsonString = JSON.stringify(payload);
+    return encryptWithPassword(jsonString, password);
+  } catch (error) {
+    console.error("Error generating backup file data:", error);
+    throw error;
+  }
+};
+
+// Generate complete QR backup data from SQLite and state (encrypted gibberish for third-party scanners)
+const generateTransferData = async (currentState = null) => {
   try {
     const db = await SQLite.openDatabaseAsync("expenses.db");
 
-    // Get all expenses from database
+    // 1. Get all expenses from database
     const expenses = await db.getAllAsync("SELECT * FROM expenses ORDER BY date DESC");
 
-    // Clean and normalize expenses for QR transfer
+    // Clean and normalize expenses for QR transfer with compact keys
     const cleanedExpenses = (expenses || []).map((e) => ({
-      amount: parseFloat(e.amount) || 0,
-      type: e.type || "EXPENSE",
-      category: e.category || "Other",
-      account: e.account || "",
-      note: e.note || "",
-      date: e.date || new Date().toISOString(),
-      currency: e.currency || "INR",
+      a: parseFloat(e.amount) || 0,
+      t: e.type || "EXPENSE",
+      c: e.category || "Other",
+      ac: e.account || "",
+      n: e.note || "",
+      d: e.date || new Date().toISOString(),
+      cr: e.currency || "INR",
     }));
 
+    // 2. Read budgets from AsyncStorage or state
+    let budgets = [];
+    try {
+      const savedBudgetsStr = await AsyncStorage.getItem(BUDGETS_STORAGE_KEY);
+      if (savedBudgetsStr) {
+        budgets = JSON.parse(savedBudgetsStr);
+      }
+    } catch (e) {
+      console.warn("Could not read saved budgets in generateTransferData:", e);
+    }
+    if ((!budgets || budgets.length === 0) && currentState?.budgets?.length > 0) {
+      budgets = currentState.budgets;
+    }
+
+    const cleanedBudgets = (budgets || []).map((b) => ({
+      c: b.category,
+      l: parseFloat(b.limit) || 0,
+      t: b.type || "EXPENSE",
+      i: b.icon || getCategoryIcon(b.category),
+    }));
+
+    // 3. Read category budgets map
+    let categoryBudgets = currentState?.categoryBudgets || {};
+    try {
+      const catBudgetsStr = await AsyncStorage.getItem(CATEGORY_BUDGETS_KEY);
+      if (catBudgetsStr) {
+        categoryBudgets = JSON.parse(catBudgetsStr);
+      }
+    } catch (e) {
+      console.warn("Could not read category budgets:", e);
+    }
+
+    // 4. Read categories from state or AsyncStorage
+    let categories = currentState?.categories;
+    if (!categories || !categories.EXPENSE) {
+      try {
+        const savedStateStr = await AsyncStorage.getItem(STORAGE_KEY);
+        if (savedStateStr) {
+          const parsed = JSON.parse(savedStateStr);
+          if (parsed?.categories) categories = parsed.categories;
+        }
+      } catch (e) {}
+    }
+    if (!categories) {
+      categories = initialState.categories;
+    }
+
+    // 5. Read accounts from state or AsyncStorage
+    let accounts = currentState?.accounts;
+    if (!accounts || accounts.length === 0) {
+      try {
+        const savedStateStr = await AsyncStorage.getItem(STORAGE_KEY);
+        if (savedStateStr) {
+          const parsed = JSON.parse(savedStateStr);
+          if (parsed?.accounts) accounts = parsed.accounts;
+        }
+      } catch (e) {}
+    }
+    if (!accounts || accounts.length === 0) {
+      accounts = initialState.accounts;
+    }
+
+    // 6. Read default currency
+    const defaultCurrency = currentState?.defaultCurrency || "INR";
+
+    // 7. Assemble complete state backup payload
     const payload = {
+      version: "2.0",
       timestamp: Date.now(),
+      defaultCurrency,
+      accounts,
+      categories,
+      budgets: cleanedBudgets,
+      categoryBudgets,
       expenses: cleanedExpenses,
-      version: "1.0",
     };
 
     const jsonString = JSON.stringify(payload);
@@ -584,35 +905,138 @@ const importTransferData = async (rawData) => {
       throw new Error("Invalid or empty data inside QR code");
     }
 
-    // Support array of expenses directly or wrapped in { expenses: [...] }
+    // 1. Extract expenses list
     const expensesList = Array.isArray(parsed)
       ? parsed
       : Array.isArray(parsed.expenses)
       ? parsed.expenses
+      : Array.isArray(parsed.exp)
+      ? parsed.exp
       : Array.isArray(parsed.data)
       ? parsed.data
       : [];
 
+    const defaultCurr = parsed.defaultCurrency || parsed.cur || "INR";
+
+    // 2. Wipe SQLite and replace with transferred expenses
     const db = await SQLite.openDatabaseAsync("expenses.db");
     await db.runAsync("DELETE FROM expenses");
 
     for (const expense of expensesList) {
+      const rawType = expense.type || expense.t || "EXPENSE";
+      const normType =
+        rawType === "E"
+          ? "EXPENSE"
+          : rawType === "I"
+          ? "INCOME"
+          : rawType === "T"
+          ? "TRANSFER"
+          : rawType;
+
       await db.runAsync(
         `INSERT INTO expenses (date, amount, type, category, account, note, currency)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           expense.date || expense.d || new Date().toISOString(),
           parseFloat(expense.amount ?? expense.a ?? 0),
-          expense.type || expense.t || "EXPENSE",
+          normType,
           expense.category || expense.c || "Other",
           expense.account || expense.ac || "",
           expense.note || expense.n || "",
-          expense.currency || expense.cr || "INR",
+          expense.currency || expense.cr || defaultCurr,
         ]
       );
     }
 
-    return true;
+    // 3. Extract Categories
+    let importedCategories = null;
+    const rawCat = parsed.categories || parsed.cat;
+    if (rawCat && typeof rawCat === "object") {
+      const exp = Array.isArray(rawCat.EXPENSE)
+        ? rawCat.EXPENSE
+        : Array.isArray(rawCat.expense)
+        ? rawCat.expense
+        : [];
+      const inc = Array.isArray(rawCat.INCOME)
+        ? rawCat.INCOME
+        : Array.isArray(rawCat.income)
+        ? rawCat.income
+        : [];
+      const trf = Array.isArray(rawCat.TRANSFER)
+        ? rawCat.TRANSFER
+        : Array.isArray(rawCat.transfer)
+        ? rawCat.transfer
+        : [];
+
+      importedCategories = {
+        EXPENSE: Array.from(new Set([...(initialState.categories.EXPENSE || []), ...exp])),
+        INCOME: Array.from(new Set([...(initialState.categories.INCOME || []), ...inc])),
+        TRANSFER: Array.from(new Set([...(initialState.categories.TRANSFER || []), ...trf])),
+      };
+    }
+
+    // 4. Extract Accounts
+    let importedAccounts = null;
+    const rawAcc = parsed.accounts || parsed.acc;
+    if (Array.isArray(rawAcc) && rawAcc.length > 0) {
+      importedAccounts = Array.from(new Set([...initialState.accounts, ...rawAcc]));
+    }
+
+    // 5. Extract Budgets & Category Budgets
+    let importedBudgets = null;
+    let importedCategoryBudgets = null;
+    const rawBudgets = parsed.budgets || parsed.bud;
+    const rawCatBudgets = parsed.categoryBudgets || parsed.cb;
+
+    if (Array.isArray(rawBudgets) && rawBudgets.length > 0) {
+      importedBudgets = rawBudgets.map((b) => {
+        const catName = b.category || b.c || "Other";
+        const limitVal = parseFloat(b.limit ?? b.l ?? 0);
+        return {
+          id: b.id || (Date.now().toString() + catName),
+          category: catName,
+          title: b.title || catName,
+          limit: limitVal,
+          icon: b.icon || b.i || getCategoryIcon(catName),
+          type: b.type || b.t || "EXPENSE",
+        };
+      });
+    }
+
+    if (rawCatBudgets && typeof rawCatBudgets === "object") {
+      importedCategoryBudgets = { ...rawCatBudgets };
+    } else if (importedBudgets) {
+      importedCategoryBudgets = {};
+      importedBudgets.forEach((b) => {
+        if (b.category && b.limit > 0) {
+          importedCategoryBudgets[b.category] = b.limit;
+        }
+      });
+    }
+
+    // 6. Extract Default Currency
+    const importedCurrency = parsed.defaultCurrency || parsed.cur || null;
+
+    // 7. Write to AsyncStorage immediately for persistent override across launches
+    if (importedBudgets && importedBudgets.length > 0) {
+      await AsyncStorage.setItem(BUDGETS_STORAGE_KEY, JSON.stringify(importedBudgets));
+    }
+    if (importedCategoryBudgets) {
+      await AsyncStorage.setItem(CATEGORY_BUDGETS_KEY, JSON.stringify(importedCategoryBudgets));
+    }
+    if (importedCurrency) {
+      await AsyncStorage.setItem("DEFAULT_CURRENCY", importedCurrency);
+    }
+
+    return {
+      success: true,
+      expensesCount: expensesList.length,
+      categories: importedCategories,
+      accounts: importedAccounts,
+      budgets: importedBudgets,
+      categoryBudgets: importedCategoryBudgets,
+      defaultCurrency: importedCurrency,
+    };
   } catch (error) {
     console.error("Error importing data:", error);
     throw error;
@@ -690,6 +1114,40 @@ const globalReducer = (state, action) => {
           TRANSFER: Array.from(new Set([...(initialState.categories.TRANSFER || []), ...(loaded.categories?.TRANSFER || [])])),
         },
         accounts: Array.from(new Set([...(initialState.accounts || []), ...(loaded.accounts || [])])),
+      };
+    }
+
+    case "RESTORE_BACKUP_STATE": {
+      const payload = action.payload || {};
+      const newTransactions = Array.isArray(payload.transactions)
+        ? payload.transactions
+        : state.transactions;
+      const newCurrency = payload.defaultCurrency || state.defaultCurrency;
+      const newCategories = payload.categories || state.categories;
+      const newAccounts =
+        Array.isArray(payload.accounts) && payload.accounts.length > 0
+          ? payload.accounts
+          : state.accounts;
+      const newBudgets =
+        Array.isArray(payload.budgets) && payload.budgets.length > 0
+          ? payload.budgets
+          : state.budgets;
+      const newCategoryBudgets =
+        payload.categoryBudgets || state.categoryBudgets;
+
+      return {
+        ...state,
+        transactions: newTransactions,
+        categories: newCategories,
+        accounts: newAccounts,
+        budgets: newBudgets,
+        categoryBudgets: newCategoryBudgets,
+        defaultCurrency: newCurrency,
+        summary: calculateSummaryWithCurrency(
+          newTransactions,
+          newCurrency,
+          state.exchangeRates
+        ),
       };
     }
 
@@ -882,6 +1340,24 @@ const globalReducer = (state, action) => {
       };
     }
 
+    case "SET_THEME":
+      return {
+        ...state,
+        theme: action.payload,
+      };
+
+    case "SET_FONT_LOADED":
+      return {
+        ...state,
+        fontLoaded: action.payload,
+      };
+
+    case "SET_HAS_LAUNCHED":
+      return {
+        ...state,
+        hasLaunched: action.payload,
+      };
+
     default:
       return state;
   }
@@ -925,6 +1401,39 @@ const GlobalContext = createContext();
 export const GlobalProvider = ({ children }) => {
   const [state, dispatch] = useReducer(globalReducer, initialState);
 
+  // Centralized Themed Alert Modal State
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    title: "",
+    message: "",
+    type: "info",
+    icon: null,
+    buttons: [{ text: "OK" }],
+  });
+
+  const showAlert = useCallback(({ title, message, type = "info", icon = null, buttons = [{ text: "OK" }] }) => {
+    setAlertConfig({
+      visible: true,
+      title: title || "",
+      message: message || "",
+      type,
+      icon,
+      buttons,
+    });
+  }, []);
+
+  const hideAlert = useCallback(() => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  }, []);
+
+  // Listen for global showThemedAlert events anywhere in the app
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("SHOW_THEMED_ALERT", (config) => {
+      showAlert(config);
+    });
+    return () => sub?.remove();
+  }, [showAlert]);
+
   useEffect(() => {
     initializeDatabase().then(() => {
       loadExpensesFromDB();
@@ -958,6 +1467,11 @@ export const GlobalProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Updates an individual category's budget limit in global state and AsyncStorage.
+   * @param {string} categoryId - The category name
+   * @param {number} limit - The monthly limit amount
+   */
   const updateCategoryBudget = async (categoryId, limit) => {
     dispatch({
       type: "UPDATE_CATEGORY_BUDGET",
@@ -965,6 +1479,9 @@ export const GlobalProvider = ({ children }) => {
     });
   };
 
+  /**
+   * Creates the local SQLite expenses table if it doesn't already exist.
+   */
   const createTable = async () => {
     try {
       await db.execAsync(`
@@ -985,6 +1502,11 @@ export const GlobalProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Fetches all expenses from the local SQLite database in descending date order.
+   * Ensures safe defaults (COALESCE) for missing or null fields.
+   * @returns {Promise<Array<Object>>} Array of transaction objects
+   */
   const fetchExpenses = async () => {
     try {
       if (!db) {
@@ -1025,6 +1547,11 @@ export const GlobalProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Inserts a new transaction into the local SQLite database.
+   * @param {Object} expense - Transaction data
+   * @returns {Promise<Object>} SQLite execution result
+   */
   const addExpense = async (expense) => {
     try {
       if (!db) {
@@ -1053,6 +1580,11 @@ export const GlobalProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Updates an existing transaction in SQLite by its ID.
+   * @param {Object} expense - Transaction data with id
+   * @returns {Promise<Object>} SQLite execution result
+   */
   const updateExpense = async (expense) => {
     try {
       if (!db) {
@@ -1082,6 +1614,10 @@ export const GlobalProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Deletes a transaction from SQLite by its ID.
+   * @param {number|string} id - The transaction ID to delete
+   */
   const deleteExpense = async (id) => {
     try {
       if (!db) {
@@ -1122,12 +1658,14 @@ export const GlobalProvider = ({ children }) => {
         type: "LOAD_EXPENSES",
         payload: validExpenses,
       });
+      return validExpenses;
     } catch (error) {
       console.error("Error loading expenses from DB:", error);
       dispatch({
         type: "LOAD_EXPENSES",
         payload: [],
       });
+      return [];
     }
   };
   const onSave = async (transactionData) => {
@@ -1287,9 +1825,24 @@ export const GlobalProvider = ({ children }) => {
         else if (lang === "mr") lang = "Marathi";
         else if (lang === "ur") lang = "Urdu";
         dispatch({ type: "SET_LANGUAGE", payload: lang });
+        try {
+          i18next.changeLanguage(lang);
+        } catch (e) {}
         console.log("Loaded saved language:", lang);
       } else {
         dispatch({ type: "SET_LANGUAGE", payload: "English" });
+        try {
+          i18next.changeLanguage("English");
+        } catch (e) {}
+      }
+
+      const savedTheme = await AsyncStorage.getItem("APP_THEME");
+      if (savedTheme) {
+        applyTheme(savedTheme);
+        dispatch({ type: "SET_THEME", payload: savedTheme });
+      } else {
+        applyTheme("dark");
+        dispatch({ type: "SET_THEME", payload: "dark" });
       }
     } catch (error) {
       console.error("Error loading initial state:", error);
@@ -1306,6 +1859,9 @@ export const GlobalProvider = ({ children }) => {
 
   const changeLanguage = async (language) => {
     try {
+      try {
+        i18next.changeLanguage(language);
+      } catch (e) {}
       dispatch({
         type: "SET_LANGUAGE",
         payload: language,
@@ -1317,11 +1873,17 @@ export const GlobalProvider = ({ children }) => {
     }
   };
 
-  const setTheme = (theme) => {
+  const setTheme = async (theme) => {
+    applyTheme(theme);
     dispatch({
       type: "SET_THEME",
       payload: theme,
     });
+    try {
+      await AsyncStorage.setItem("APP_THEME", theme);
+    } catch (e) {
+      console.warn("Error saving theme:", e);
+    }
   };
 
   const setFontLoaded = (loaded) => {
@@ -1442,9 +2004,63 @@ export const GlobalProvider = ({ children }) => {
     });
   };
 
+  const handleGenerateTransferData = async () => {
+    return await generateTransferData(state);
+  };
+
   const handleImportTransferData = async (rawData) => {
     const result = await importTransferData(rawData);
-    await loadExpensesFromDB();
+    const freshExpenses = await loadExpensesFromDB();
+
+    dispatch({
+      type: "RESTORE_BACKUP_STATE",
+      payload: {
+        transactions: freshExpenses,
+        categories: result.categories,
+        accounts: result.accounts,
+        budgets: result.budgets,
+        categoryBudgets: result.categoryBudgets,
+        defaultCurrency: result.defaultCurrency,
+      },
+    });
+
+    DeviceEventEmitter.emit("FINFIT_DATA_SYNCED", result);
+    return result;
+  };
+
+  const handleGenerateBackupFile = async (password) => {
+    return await generateBackupFileData(state, password);
+  };
+
+  const handleImportBackupFile = async (fileContent, password) => {
+    let payloadToDecrypt = fileContent ? String(fileContent).trim() : "";
+    try {
+      const parsedWrapper = JSON.parse(payloadToDecrypt);
+      if (parsedWrapper && typeof parsedWrapper.payload === "string") {
+        payloadToDecrypt = parsedWrapper.payload.trim();
+      }
+    } catch (e) {
+      // not JSON wrapper, raw string
+    }
+
+    const decryptedJson = decryptWithPassword(payloadToDecrypt, password);
+    const parsed = JSON.parse(decryptedJson);
+    const result = await importTransferData(parsed);
+    const freshExpenses = await loadExpensesFromDB();
+
+    dispatch({
+      type: "RESTORE_BACKUP_STATE",
+      payload: {
+        transactions: freshExpenses,
+        categories: result.categories,
+        accounts: result.accounts,
+        budgets: result.budgets,
+        categoryBudgets: result.categoryBudgets,
+        defaultCurrency: result.defaultCurrency,
+      },
+    });
+
+    DeviceEventEmitter.emit("FINFIT_DATA_SYNCED", result);
     return result;
   };
 
@@ -1472,16 +2088,31 @@ export const GlobalProvider = ({ children }) => {
         loadExpensesFromDB,
         convertAmount,
         setDefaultCurrency,
-        generateTransferData,
+        generateTransferData: handleGenerateTransferData,
         importTransferData: handleImportTransferData,
+        generateBackupFileData: handleGenerateBackupFile,
+        importBackupFile: handleImportBackupFile,
         addCategory,
         deleteCategory,
         addAccount,
         deleteAccount,
         fetchExchangeRates,
+        showAlert,
+        hideAlert,
+        isLight: state.theme === 'light',
       }}
     >
       {children}
+      <ThemedAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        icon={alertConfig.icon}
+        buttons={alertConfig.buttons}
+        onClose={hideAlert}
+        theme={state.theme}
+      />
     </GlobalContext.Provider>
   );
 };

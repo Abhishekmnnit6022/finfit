@@ -10,7 +10,10 @@ import {
   Modal,
   TouchableOpacity,
   ActivityIndicator,
+  DeviceEventEmitter,
+  Switch,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DrawerContentScrollView, DrawerItem } from "@react-navigation/drawer";
 import { Drawer } from "expo-router/drawer";
 import { MaterialIcons, Ionicons } from "@expo/vector-icons";
@@ -26,7 +29,8 @@ import { useGlobalContext } from './../../components/globalProvider';
 import { COLORS } from "../../constants/theme";
 import ExportDataModal from '../../components/ExportDataModal';
 import { set } from "date-fns";
-import QRScannerModel from "../../components/QRCodeScanner"
+import QRScannerModel from "../../components/QRCodeScanner";
+import SyncDataModal from "../../components/SyncDataModal";
 import { useRouter } from "expo-router";
 import * as ImagePicker from 'expo-image-picker';
 import { ExpoCamera } from 'expo-camera';
@@ -40,7 +44,8 @@ const CustomDrawerContent = (props) => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isCurrencyModalVisible, setIsCurrencyModalVisible] = useState(false);
-  const { state, dispatch, changeLanguage, importTransferData } = useGlobalContext();
+  const [isSyncModalVisible, setIsSyncModalVisible] = useState(false);
+  const { state, dispatch, changeLanguage, setTheme, importTransferData, showAlert } = useGlobalContext();
   const { t, i18n } = useTranslation();
   const [isQRScannerVisible, setIsQRScannerVisible] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -64,10 +69,11 @@ const CustomDrawerContent = (props) => {
 
 
     } catch (error) {
-      Alert.alert(
-        t('Error'),
-        t('Failed to update default currency')
-      );
+      showAlert({
+        title: t('Error'),
+        message: t('Failed to update default currency'),
+        type: 'error',
+      });
     } finally {
       setLoading(false);
     }
@@ -88,10 +94,18 @@ const CustomDrawerContent = (props) => {
   const handleScanSuccess = async (data) => {
     try {
       await importTransferData(data);
-      Alert.alert('Sync Successful', 'Your expenses have been transferred and synced successfully!');
+      showAlert({
+        title: 'Sync Successful',
+        message: 'All transactions, budgets, accounts, and categories have been restored and synced successfully!',
+        type: 'success',
+      });
       setDataImported(true);
     } catch (error) {
-      Alert.alert('Sync Failed', 'Error importing data: ' + (error?.message || 'Invalid QR code'));
+      showAlert({
+        title: 'Sync Failed',
+        message: 'Error importing data: ' + (error?.message || 'Invalid QR code'),
+        type: 'error',
+      });
     } finally {
       setIsQRScannerVisible(false);
     }
@@ -121,27 +135,56 @@ const CustomDrawerContent = (props) => {
     }
   }, [dataImported, loadExpensesFromDB]);
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('FINFIT_DATA_SYNCED', async () => {
+      try {
+        await loadExpensesFromDB();
+      } catch (e) {
+        console.error('Error reloading data on FINFIT_DATA_SYNCED:', e);
+      }
+    });
+    return () => sub.remove();
+  }, [loadExpensesFromDB]);
+
+  const isLight = state?.theme === "light";
+  const drawerTextColor = isLight ? "#0F172A" : COLORS.text.primary;
+
   return (
     <>
       <DrawerContentScrollView
         {...props}
-        contentContainerStyle={[styles.drawerContent, { paddingTop: 0 }]}
-        style={{ backgroundColor: COLORS.background }}
+        contentContainerStyle={[
+          styles.drawerContent,
+          {
+            paddingTop: 0,
+            backgroundColor: isLight ? "#FFFFFF" : COLORS.background,
+          },
+        ]}
+        style={{ backgroundColor: isLight ? "#FFFFFF" : COLORS.background }}
       >
         <StatusBar
-          barStyle="light-content"
-          backgroundColor={COLORS.background}
+          barStyle={isLight ? "dark-content" : "light-content"}
+          backgroundColor={isLight ? "#FFFFFF" : COLORS.background}
           translucent={true}
           hidden={false}
         />
-        <View style={[styles.profileContainer, { paddingTop: Math.max(insets.top, hp("2%")) + hp("1.5%") }]}>
+        <View
+          style={[
+            styles.profileContainer,
+            {
+              paddingTop: Math.max(insets.top, hp("2%")) + hp("1.5%"),
+              backgroundColor: isLight ? "#F8FAFC" : COLORS.background,
+              borderBottomColor: isLight ? "#E2E8F0" : COLORS.lightbackground,
+            },
+          ]}
+        >
           <Image
             source={require("../../assets/images/logoFinFitWhite.png")}
-            style={[styles.profileImage, { tintColor: "#FFFFFF" }]}
+            style={[styles.profileImage, { tintColor: isLight ? COLORS.primary : "#FFFFFF" }]}
           />
-          <Text style={styles.userName}>FinFit</Text>
+          <Text style={[styles.userName, { color: drawerTextColor }]}>FinFit</Text>
         </View>
-        <View style={styles.drawerItemsContainer}>
+        <View style={[styles.drawerItemsContainer, { backgroundColor: isLight ? "#FFFFFF" : COLORS.background }]}>
           {props.state.routes
             .filter((route) => route.name !== "(tabs)")
             .map((route) => (
@@ -150,70 +193,155 @@ const CustomDrawerContent = (props) => {
                 label={t(props.descriptors[route.key].options.drawerLabel || route.name)}
                 icon={props.descriptors[route.key].options.drawerIcon}
                 labelStyle={{
-                  color: selectedItem === route.key ? COLORS.secondary : COLORS.text.primary,
-                  fontWeight: selectedItem === route.key ? "bold" : "normal",
+                  color: selectedItem === route.key ? COLORS.secondary : drawerTextColor,
+                  fontWeight: selectedItem === route.key ? "bold" : "600",
+                  fontSize: wp("3.8%"),
                 }}
                 onPress={() => {
                   setSelectedItem(route.key);
-                  props.navigation.navigate(route.name);
+                  props.navigation?.navigate?.(route.name);
                 }}
                 style={{
-                  backgroundColor: selectedItem === route.key ? COLORS.primary : COLORS.lightbackground,
+                  backgroundColor:
+                    selectedItem === route.key
+                      ? COLORS.primary
+                      : isLight
+                      ? "#F8FAFC"
+                      : "transparent",
+                  borderRadius: wp("2.5%"),
+                  marginHorizontal: wp("2%"),
                 }}
               />
             ))}
 
+          {/* 1. Language */}
           <DrawerItem
             label={t('Language')}
-            icon={() => <Ionicons name="language" size={wp("6%")} color={COLORS.text.primary} />}
+            icon={() => <Ionicons name="language" size={wp("5.5%")} color={isLight ? COLORS.primary : "#94A3B8"} />}
             onPress={() => setIsModalVisible(true)}
-            labelStyle={{ color: COLORS.text.primary }}
+            labelStyle={{ color: drawerTextColor, fontSize: wp("3.8%"), fontWeight: "600" }}
+            style={[styles.drawerItemRow, isLight && styles.drawerItemRowLight]}
           />
+
+          {/* 2. Currency Settings */}
           <DrawerItem
-            label={t('Scan QR')}
-            icon={() => <MaterialIcons name="qr-code-scanner" size={wp("6%")} color={COLORS.text.primary} />}
-            onPress={handleScanQR}
-            labelStyle={{ color: COLORS.text.primary }}
+            label={t('CurrencySettings')}
+            icon={() => <MaterialIcons name="attach-money" size={wp("5.5%")} color={isLight ? COLORS.primary : "#94A3B8"} />}
+            onPress={() => setIsCurrencyModalVisible(true)}
+            labelStyle={{ color: drawerTextColor, fontSize: wp("3.8%"), fontWeight: "600" }}
+            style={[styles.drawerItemRow, isLight && styles.drawerItemRowLight]}
           />
+
+          {/* 3. Export Data */}
           <DrawerItem
             label={t('Export Data')}
-            icon={() => <Ionicons name="exit" size={wp("6%")} color={COLORS.text.primary} />}
+            icon={() => <Ionicons name="exit-outline" size={wp("5.5%")} color={isLight ? COLORS.primary : "#94A3B8"} />}
             onPress={() => setIsExportModalVisible(true)}
-            labelStyle={{ color: COLORS.text.primary }}
+            labelStyle={{ color: drawerTextColor, fontSize: wp("3.8%"), fontWeight: "600" }}
+            style={[styles.drawerItemRow, isLight && styles.drawerItemRowLight]}
           />
-           <DrawerItem
-              label={t('CurrencySettings')}
-              icon={() => <MaterialIcons name="money" size={wp("6%")} color={COLORS.text.primary} />}
-              onPress={() => setIsCurrencyModalVisible(true)}
-              labelStyle={{ color: COLORS.text.primary }}
-            />      
+
+          {/* 4. Sync Data */}
+          <DrawerItem
+            label={t('Sync Data')}
+            icon={() => <MaterialIcons name="sync" size={wp("5.5%")} color={isLight ? COLORS.primary : "#94A3B8"} />}
+            onPress={() => setIsSyncModalVisible(true)}
+            labelStyle={{ color: drawerTextColor, fontSize: wp("3.8%"), fontWeight: "600" }}
+            style={[styles.drawerItemRow, isLight && styles.drawerItemRowLight]}
+          />
+
+          {/* 5. Backup */}
           <DrawerItem
             label={t('Backup')}
-            icon={() => <MaterialIcons name="logout" size={wp("6%")} color={COLORS.text.primary} />}
+            icon={() => <MaterialIcons name="backup" size={wp("5.5%")} color={isLight ? COLORS.primary : "#94A3B8"} />}
             onPress={() => router.push('/signup')}
-            labelStyle={{ color: COLORS.text.primary }}
+            labelStyle={{ color: drawerTextColor, fontSize: wp("3.8%"), fontWeight: "600" }}
+            style={[styles.drawerItemRow, isLight && styles.drawerItemRowLight]}
           />
-          <DrawerItem
 
-            label={t('Help')}
-            icon={() => <MaterialIcons name="help-outline" size={wp("6%")} color={COLORS.text.primary} />}
-            onPress={() => Linking.openURL("https://forms.gle/5iJKWrfCXMsviTiL8")}
-            labelStyle={{ color: COLORS.text.primary }}
-          />
+          {/* 6. Help -> Triggers Interactive User Guide Tour (AppGuideOverlay) */}
           <DrawerItem
-            label={t('Feedback')}
-            icon={() => <MaterialIcons name="feedback" size={wp("6%")} color={COLORS.text.primary} />}
-            onPress={() => Linking.openURL("https://forms.gle/5iJKWrfCXMsviTiL8")}
-            labelStyle={{ color: COLORS.text.primary }}
+            label={t('Help')}
+            icon={() => <MaterialIcons name="help-outline" size={wp("5.5%")} color={isLight ? COLORS.primary : "#94A3B8"} />}
+            onPress={() => {
+              try {
+                if (props.navigation && typeof props.navigation.closeDrawer === 'function') {
+                  props.navigation.closeDrawer();
+                }
+              } catch (e) {
+                console.warn("Could not close drawer:", e);
+              }
+              try {
+                router.navigate("/(drawer)/(tabs)");
+              } catch (e) {
+                console.warn("Could not navigate to tabs:", e);
+              }
+              setTimeout(() => {
+                DeviceEventEmitter.emit("TRIGGER_APP_TOUR");
+              }, 300);
+            }}
+            labelStyle={{ color: drawerTextColor, fontSize: wp("3.8%"), fontWeight: "600" }}
+            style={[styles.drawerItemRow, isLight && styles.drawerItemRowLight]}
           />
-           
+
+          {/* 7. Theme Toggle with Switch */}
+          <TouchableOpacity
+            style={[
+              styles.drawerItemRow,
+              isLight && styles.drawerItemRowLight,
+              {
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingVertical: hp('1%'),
+                paddingHorizontal: wp('4%'),
+                marginHorizontal: wp('2%'),
+                marginVertical: hp('0.4%'),
+                borderRadius: wp('2.5%'),
+                backgroundColor: isLight ? "#F8FAFC" : "transparent",
+              }
+            ]}
+            activeOpacity={0.7}
+            onPress={async () => {
+              const nextTheme = isLight ? "dark" : "light";
+              if (setTheme) {
+                await setTheme(nextTheme);
+              }
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: wp('4%') }}>
+              <Ionicons
+                name={isLight ? "sunny" : "moon"}
+                size={wp("5.5%")}
+                color={isLight ? "#F59E0B" : COLORS.primary}
+              />
+              <Text style={{
+                color: drawerTextColor,
+                fontSize: wp("3.8%"),
+                fontWeight: "600"
+              }}>
+                {isLight ? (t("Light Mode") || "Light Mode") : (t("Dark Mode") || "Dark Mode")}
+              </Text>
+            </View>
+            <Switch
+              value={!isLight}
+              onValueChange={async (val) => {
+                const nextTheme = val ? "dark" : "light";
+                if (setTheme) {
+                  await setTheme(nextTheme);
+                }
+              }}
+              trackColor={{ false: "#CBD5E1", true: COLORS.primary }}
+              thumbColor="#FFFFFF"
+            />
+          </TouchableOpacity>
         </View>
       </DrawerContentScrollView>
 
       <Modal visible={isModalVisible} transparent={true} animationType="slide">
         <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{t('selectLanguage')}</Text>
+          <View style={[styles.modalContent, isLight && { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0" }]}>
+            <Text style={[styles.modalTitle, isLight && { color: "#0F172A" }]}>{t('selectLanguage')}</Text>
             {[
               { id: "English", label: "English" },
               { id: "Hindi", label: "Hindi (हिंदी)" },
@@ -226,12 +354,14 @@ const CustomDrawerContent = (props) => {
                 key={id}
                 style={[
                   styles.languageOption,
+                  isLight && { backgroundColor: "#F1F5F9" },
                   state.language === id && styles.selectedLanguage
                 ]}
                 onPress={() => handleLanguageSelect(id)}
               >
                 <Text style={[
                   styles.languageText,
+                  isLight && { color: "#0F172A" },
                   state.language === id && styles.selectedLanguageText
                 ]}>
                   {label}
@@ -239,10 +369,10 @@ const CustomDrawerContent = (props) => {
               </TouchableOpacity>
             ))}
             <TouchableOpacity
-              style={styles.closeButton}
+              style={[styles.closeButton, isLight && { backgroundColor: "#E2E8F0" }]}
               onPress={() => setIsModalVisible(false)}
             >
-              <Text style={styles.closeButtonText}>{t('close')}</Text>
+              <Text style={[styles.closeButtonText, isLight && { color: "#0F172A" }]}>{t('close')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -262,6 +392,12 @@ const CustomDrawerContent = (props) => {
         onScanSuccess={handleScanSuccess}
       />
 
+      <SyncDataModal
+        visible={isSyncModalVisible}
+        onClose={() => setIsSyncModalVisible(false)}
+        onScanQR={() => setIsQRScannerVisible(true)}
+      />
+
       <ExportDataModal
         visible={isExportModalVisible}
         onClose={() => setIsExportModalVisible(false)}
@@ -271,14 +407,17 @@ const CustomDrawerContent = (props) => {
   );
 };
 
-export default function Layout({ navigation }) {
+export default function Layout() {
+  const { state } = useGlobalContext();
+  const isLight = state?.theme === "light";
+
   return (
     <Drawer
       screenOptions={{
         headerShown: false,
         drawerStyle: {
           width: wp("72%"),
-          backgroundColor: COLORS.background,
+          backgroundColor: isLight ? "#FFFFFF" : COLORS.background,
         },
         swipeEnabled: true,
         drawerType: "front",
@@ -287,7 +426,7 @@ export default function Layout({ navigation }) {
         statusBarAnimation: "slide",
       }}
       drawerContent={(props) => (
-        <CustomDrawerContent {...props} navigation={navigation} />
+        <CustomDrawerContent {...props} />
       )}
     />
   );
@@ -297,14 +436,11 @@ const styles = StyleSheet.create({
   drawerContent: {
     paddingTop: 0,
     flexGrow: 1,
-    backgroundColor: COLORS.background,
   },
   profileContainer: {
     alignItems: "center",
     padding: wp("5%"),
-    backgroundColor: COLORS.background,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightbackground,
   },
   profileImage: {
     width: wp("20%"),
@@ -328,6 +464,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: hp("1%"),
     marginTop: hp("1%"),
+  },
+  drawerItemRow: {
+    borderRadius: wp("2.5%"),
+    marginHorizontal: wp("2%"),
+    marginVertical: hp("0.2%"),
+  },
+  drawerItemRowLight: {
+    backgroundColor: "transparent",
   },
   modalContainer: {
     flex: 1,
