@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,52 @@ import {
   TextInput,
   FlatList,
   ActivityIndicator,
-  StyleSheet
+  StyleSheet,
+  SafeAreaView
 } from 'react-native';
-import { MaterialIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from "react-native-responsive-screen";
 import { COLORS } from "../constants/theme";
+import { useGlobalContext } from "./globalProvider";
+import { useTranslation } from "react-i18next";
+
+export const CURATED_CURRENCIES = {
+  INR: { symbol: '₹', name: 'Indian Rupee' },
+  USD: { symbol: '$', name: 'US Dollar' },
+  EUR: { symbol: '€', name: 'Euro' },
+  GBP: { symbol: '£', name: 'British Pound' },
+  AED: { symbol: 'د.إ', name: 'UAE Dirham' },
+  SAR: { symbol: '﷼', name: 'Saudi Riyal' },
+  CAD: { symbol: 'CA$', name: 'Canadian Dollar' },
+  AUD: { symbol: 'A$', name: 'Australian Dollar' },
+  SGD: { symbol: 'S$', name: 'Singapore Dollar' },
+  KWD: { symbol: 'د.ك', name: 'Kuwaiti Dinar' },
+  QAR: { symbol: 'ر.ق', name: 'Qatari Rial' },
+  OMR: { symbol: 'ر.ع.', name: 'Omani Rial' },
+  BHD: { symbol: 'BD', name: 'Bahraini Dinar' },
+  JPY: { symbol: '¥', name: 'Japanese Yen' },
+  CNY: { symbol: '¥', name: 'Chinese Yuan' },
+  CHF: { symbol: 'CHF', name: 'Swiss Franc' },
+  RUB: { symbol: '₽', name: 'Russian Ruble' },
+  BRL: { symbol: 'R$', name: 'Brazilian Real' },
+  ZAR: { symbol: 'R', name: 'South African Rand' },
+  PKR: { symbol: '₨', name: 'Pakistani Rupee' },
+  BDT: { symbol: '৳', name: 'Bangladeshi Taka' },
+  LKR: { symbol: 'Rs', name: 'Sri Lankan Rupee' },
+  NPR: { symbol: 'रू', name: 'Nepalese Rupee' },
+  NZD: { symbol: 'NZ$', name: 'New Zealand Dollar' },
+  THB: { symbol: '฿', name: 'Thai Baht' },
+  MYR: { symbol: 'RM', name: 'Malaysian Ringgit' },
+  IDR: { symbol: 'Rp', name: 'Indonesian Rupiah' },
+  KRW: { symbol: '₩', name: 'South Korean Won' },
+  TRY: { symbol: '₺', name: 'Turkish Lira' },
+  EGP: { symbol: 'E£', name: 'Egyptian Pound' },
+  VND: { symbol: '₫', name: 'Vietnamese Dong' },
+  PHP: { symbol: '₱', name: 'Philippine Peso' },
+  MXN: { symbol: 'Mex$', name: 'Mexican Peso' },
+  SEK: { symbol: 'kr', name: 'Swedish Krona' },
+  HKD: { symbol: 'HK$', name: 'Hong Kong Dollar' },
+};
 
 const CurrencySelector = ({ 
   visible, 
@@ -19,231 +60,153 @@ const CurrencySelector = ({
   onSelectCurrency, 
   currentCurrency,
   loading,
-  t // translation function
+  t: propT
 }) => {
+  const { state } = useGlobalContext();
+  const { t: hookT } = useTranslation();
+  const t = propT || hookT;
+  const isLight = state?.theme === 'light';
   const [searchQuery, setSearchQuery] = useState('');
-  
-const allCurrencies = {
-    AED: { symbol: 'د.إ', name: 'United Arab Emirates Dirham' },
-    AFN: { symbol: '؋', name: 'Afghan Afghani' },
-    ALL: { symbol: 'L', name: 'Albanian Lek' },
-    AMD: { symbol: '֏', name: 'Armenian Dram' },
-    ANG: { symbol: 'ƒ', name: 'Netherlands Antillean Guilder' },
-    AOA: { symbol: 'Kz', name: 'Angolan Kwanza' },
-    ARS: { symbol: '$', name: 'Argentine Peso' },
-    AUD: { symbol: 'A$', name: 'Australian Dollar' },
-    AWG: { symbol: 'ƒ', name: 'Aruban Florin' },
-    AZN: { symbol: '₼', name: 'Azerbaijani Manat' },
-    BAM: { symbol: 'KM', name: 'Bosnia-Herzegovina Convertible Mark' },
-    BBD: { symbol: '$', name: 'Barbadian Dollar' },
-    BDT: { symbol: '৳', name: 'Bangladeshi Taka' },
-    BGN: { symbol: 'лв', name: 'Bulgarian Lev' },
-    BHD: { symbol: '.د.ب', name: 'Bahraini Dinar' },
-    BIF: { symbol: 'FBu', name: 'Burundian Franc' },
-    BMD: { symbol: '$', name: 'Bermudan Dollar' },
-    BND: { symbol: '$', name: 'Brunei Dollar' },
-    BOB: { symbol: 'Bs.', name: 'Bolivian Boliviano' },
-    BRL: { symbol: 'R$', name: 'Brazilian Real' },
-    BSD: { symbol: '$', name: 'Bahamian Dollar' },
-    BTN: { symbol: 'Nu.', name: 'Bhutanese Ngultrum' },
-    BWP: { symbol: 'P', name: 'Botswanan Pula' },
-    BYN: { symbol: 'Br', name: 'Belarusian Ruble' },
-    BZD: { symbol: 'BZ$', name: 'Belize Dollar' },
-    CAD: { symbol: 'C$', name: 'Canadian Dollar' },
-    CDF: { symbol: 'FC', name: 'Congolese Franc' },
-    CHF: { symbol: 'Fr', name: 'Swiss Franc' },
-    CLP: { symbol: '$', name: 'Chilean Peso' },
-    CNY: { symbol: '¥', name: 'Chinese Yuan' },
-    COP: { symbol: '$', name: 'Colombian Peso' },
-    CRC: { symbol: '₡', name: 'Costa Rican Colón' },
-    CUP: { symbol: '₱', name: 'Cuban Peso' },
-    CVE: { symbol: '$', name: 'Cape Verdean Escudo' },
-    CZK: { symbol: 'Kč', name: 'Czech Koruna' },
-    DJF: { symbol: 'Fdj', name: 'Djiboutian Franc' },
-    DKK: { symbol: 'kr', name: 'Danish Krone' },
-    DOP: { symbol: 'RD$', name: 'Dominican Peso' },
-    DZD: { symbol: 'د.ج', name: 'Algerian Dinar' },
-    EGP: { symbol: 'E£', name: 'Egyptian Pound' },
-    ERN: { symbol: 'Nfk', name: 'Eritrean Nakfa' },
-    ETB: { symbol: 'Br', name: 'Ethiopian Birr' },
-    EUR: { symbol: '€', name: 'Euro' },
-    FJD: { symbol: 'FJ$', name: 'Fijian Dollar' },
-    FKP: { symbol: '£', name: 'Falkland Islands Pound' },
-    GBP: { symbol: '£', name: 'British Pound Sterling' },
-    GEL: { symbol: '₾', name: 'Georgian Lari' },
-    GHS: { symbol: 'GH₵', name: 'Ghanaian Cedi' },
-    GIP: { symbol: '£', name: 'Gibraltar Pound' },
-    GMD: { symbol: 'D', name: 'Gambian Dalasi' },
-    GNF: { symbol: 'FG', name: 'Guinean Franc' },
-    GTQ: { symbol: 'Q', name: 'Guatemalan Quetzal' },
-    GYD: { symbol: '$', name: 'Guyanaese Dollar' },
-    HKD: { symbol: 'HK$', name: 'Hong Kong Dollar' },
-    HNL: { symbol: 'L', name: 'Honduran Lempira' },
-    HRK: { symbol: 'kn', name: 'Croatian Kuna' },
-    HTG: { symbol: 'G', name: 'Haitian Gourde' },
-    HUF: { symbol: 'Ft', name: 'Hungarian Forint' },
-    IDR: { symbol: 'Rp', name: 'Indonesian Rupiah' },
-    ILS: { symbol: '₪', name: 'Israeli New Shekel' },
-    INR: { symbol: '₹', name: 'Indian Rupee' },
-    IQD: { symbol: 'ع.د', name: 'Iraqi Dinar' },
-    IRR: { symbol: '﷼', name: 'Iranian Rial' },
-    ISK: { symbol: 'kr', name: 'Icelandic Króna' },
-    JMD: { symbol: 'J$', name: 'Jamaican Dollar' },
-    JOD: { symbol: 'د.ا', name: 'Jordanian Dinar' },
-    JPY: { symbol: '¥', name: 'Japanese Yen' },
-    KES: { symbol: 'KSh', name: 'Kenyan Shilling' },
-    KGS: { symbol: 'лв', name: 'Kyrgystani Som' },
-    KHR: { symbol: '៛', name: 'Cambodian Riel' },
-    KMF: { symbol: 'CF', name: 'Comorian Franc' },
-    KPW: { symbol: '₩', name: 'North Korean Won' },
-    KRW: { symbol: '₩', name: 'South Korean Won' },
-    KWD: { symbol: 'د.ك', name: 'Kuwaiti Dinar' },
-    KYD: { symbol: '$', name: 'Cayman Islands Dollar' },
-    KZT: { symbol: '₸', name: 'Kazakhstani Tenge' },
-    LAK: { symbol: '₭', name: 'Laotian Kip' },
-    LBP: { symbol: 'ل.ل', name: 'Lebanese Pound' },
-    LKR: { symbol: 'Rs', name: 'Sri Lankan Rupee' },
-    LRD: { symbol: '$', name: 'Liberian Dollar' },
-    LSL: { symbol: 'L', name: 'Lesotho Loti' },
-    LYD: { symbol: 'ل.د', name: 'Libyan Dinar' },
-    MAD: { symbol: 'د.م.', name: 'Moroccan Dirham' },
-    MDL: { symbol: 'L', name: 'Moldovan Leu' },
-    MGA: { symbol: 'Ar', name: 'Malagasy Ariary' },
-    MKD: { symbol: 'ден', name: 'Macedonian Denar' },
-    MMK: { symbol: 'K', name: 'Myanmar Kyat' },
-    MNT: { symbol: '₮', name: 'Mongolian Tugrik' },
-    MOP: { symbol: 'MOP$', name: 'Macanese Pataca' },
-    MRU: { symbol: 'UM', name: 'Mauritanian Ouguiya' },
-    MUR: { symbol: '₨', name: 'Mauritian Rupee' },
-    MVR: { symbol: 'Rf', name: 'Maldivian Rufiyaa' },
-    MWK: { symbol: 'MK', name: 'Malawian Kwacha' },
-    MXN: { symbol: '$', name: 'Mexican Peso' },
-    MYR: { symbol: 'RM', name: 'Malaysian Ringgit' },
-    MZN: { symbol: 'MT', name: 'Mozambican Metical' },
-    NAD: { symbol: '$', name: 'Namibian Dollar' },
-    NGN: { symbol: '₦', name: 'Nigerian Naira' },
-    NIO: { symbol: 'C$', name: 'Nicaraguan Córdoba' },
-    NOK: { symbol: 'kr', name: 'Norwegian Krone' },
-    NPR: { symbol: '₨', name: 'Nepalese Rupee' },
-    NZD: { symbol: '$', name: 'New Zealand Dollar' },
-    OMR: { symbol: '﷼', name: 'Omani Rial' },
-    PAB: { symbol: 'B/.', name: 'Panamanian Balboa' },
-    PEN: { symbol: 'S/.', name: 'Peruvian Nuevo Sol' },
-    PGK: { symbol: 'K', name: 'Papua New Guinean Kina' },
-    PHP: { symbol: '₱', name: 'Philippine Peso' },
-    PKR: { symbol: '₨', name: 'Pakistani Rupee' },
-    PLN: { symbol: 'zł', name: 'Polish Złoty' },
-    PYG: { symbol: '₲', name: 'Paraguayan Guarani' },
-    QAR: { symbol: 'ر.ق', name: 'Qatari Rial' },
-    RON: { symbol: 'lei', name: 'Romanian Leu' },
-    RSD: { symbol: 'дин.', name: 'Serbian Dinar' },
-    RUB: { symbol: '₽', name: 'Russian Ruble' },
-    RWF: { symbol: 'FRw', name: 'Rwandan Franc' },
-    SAR: { symbol: '﷼', name: 'Saudi Riyal' },
-    SBD: { symbol: '$', name: 'Solomon Islands Dollar' },
-    SCR: { symbol: '₨', name: 'Seychellois Rupee' },
-    SDG: { symbol: 'ج.س.', name: 'Sudanese Pound' },
-    SEK: { symbol: 'kr', name: 'Swedish Krona' },
-    SGD: { symbol: 'S$', name: 'Singapore Dollar' },
-    SHP: { symbol: '£', name: 'Saint Helena Pound' },
-    SLL: { symbol: 'Le', name: 'Sierra Leonean Leone' },
-    SOS: { symbol: 'S', name: 'Somali Shilling' },
-    SRD: { symbol: '$', name: 'Surinamese Dollar' },
-    STN: { symbol: 'Db', name: 'São Tomé and Príncipe Dobra' },
-    SVC: { symbol: '$', name: 'Salvadoran Colón' },
-    SYP: { symbol: '£', name: 'Syrian Pound' },
-    SZL: { symbol: 'L', name: 'Swazi Lilangeni' },
-    THB: { symbol: '฿', name: 'Thai Baht' },
-    TJS: { symbol: 'SM', name: 'Tajikistani Somoni' },
-    TMT: { symbol: 'T', name: 'Turkmenistani Manat' },
-    TND: { symbol: 'د.ت', name: 'Tunisian Dinar' },
-    TOP: { symbol: 'T$', name: 'Tongan Paʻanga' },
-    TRY: { symbol: '₺', name: 'Turkish Lira' },
-    TTD: { symbol: 'TT$', name: 'Trinidad and Tobago Dollar' },
-    TWD: { symbol: 'NT$', name: 'New Taiwan Dollar' },
-    TZS: { symbol: 'TSh', name: 'Tanzanian Shilling' },
-    UAH: { symbol: '₴', name: 'Ukrainian Hryvnia' },
-    UGX: { symbol: 'USh', name: 'Ugandan Shilling' },
-    USD: { symbol: '$', name: 'United States Dollar' },
-    UYU: { symbol: '$U', name: 'Uruguayan Peso' },
-    UZS: { symbol: 'лв', name: 'Uzbekistan Som' },
-    VES: { symbol: 'Bs', name: 'Venezuelan Bolívar' },
-    VND: { symbol: '₫', name: 'Vietnamese Dong' },
-    VUV: { symbol: 'VT', name: 'Vanuatu Vatu' },
-    WST: { symbol: 'WS$', name: 'Samoan Tala' },
-    XAF: { symbol: 'FCFA', name: 'Central African CFA Franc' },
-    XCD: { symbol: '$', name: 'East Caribbean Dollar' },
-    XOF: { symbol: 'CFA', name: 'West African CFA Franc' },
-    XPF: { symbol: '₣', name: 'CFP Franc' },
-    YER: { symbol: '﷼', name: 'Yemeni Rial' },
-    ZAR: { symbol: 'R', name: 'South African Rand' },
-    ZMW: { symbol: 'ZK', name: 'Zambian Kwacha' },
-    ZWL: { symbol: '$', name: 'Zimbabwean Dollar' }
-  };
-  const filteredCurrencies = Object.entries(allCurrencies).filter(([code, currency]) => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      code.toLowerCase().includes(searchLower) ||
-      currency.name.toLowerCase().includes(searchLower)
-    );
-  });
 
-  const renderCurrencyItem = ({ item: [code, currency] }) => (
-    <TouchableOpacity
-      style={[
-        styles.currencyOption,
-        currentCurrency === code && styles.selectedCurrency
-      ]}
-      onPress={() => {
-        onSelectCurrency(code);
-        onClose();
-      }}
-    >
-      <View style={styles.currencyContent}>
-        <Text style={[
-          styles.currencyText,
-          currentCurrency === code ? styles.selectedText : styles.unselectedText
-        ]}>
-          {currency.symbol} {code}
-        </Text>
-        <Text style={[
-          styles.currencySubtext,
-          currentCurrency === code ? styles.selectedText : styles.unselectedText
-        ]}>
-          {currency.name}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+  const getLocalizedName = (code, defaultName) => {
+    if (t) {
+      const key = 'currency_' + code;
+      const direct = t(key);
+      if (direct && direct !== key) return direct;
+      const byName = t(defaultName);
+      if (byName && byName !== defaultName) return byName;
+    }
+    return defaultName;
+  };
+
+  const filteredCurrencies = useMemo(() => {
+    return Object.entries(CURATED_CURRENCIES).filter(([code, currency]) => {
+      const searchLower = searchQuery.toLowerCase().trim();
+      if (!searchLower) return true;
+      const localized = getLocalizedName(code, currency.name).toLowerCase();
+      return (
+        code.toLowerCase().includes(searchLower) ||
+        currency.name.toLowerCase().includes(searchLower) ||
+        currency.symbol.toLowerCase().includes(searchLower) ||
+        localized.includes(searchLower)
+      );
+    });
+  }, [searchQuery, t]);
+
+  const renderCurrencyItem = ({ item: [code, currency] }) => {
+    const isSelected = currentCurrency === code;
+    const localizedName = getLocalizedName(code, currency.name);
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.currencyCard,
+          isLight && styles.currencyCardLight,
+          isSelected && (isLight ? styles.selectedCardLight : styles.selectedCardDark)
+        ]}
+        activeOpacity={0.7}
+        onPress={() => {
+          onSelectCurrency(code);
+          onClose();
+        }}
+      >
+        <View style={styles.cardLeft}>
+          <View style={[
+            styles.symbolBadge,
+            isLight && styles.symbolBadgeLight,
+            isSelected && styles.symbolBadgeSelected
+          ]}>
+            <Text style={[
+              styles.symbolBadgeText,
+              isLight && styles.symbolBadgeTextLight,
+              isSelected && { color: '#FFFFFF' }
+            ]}>
+              {currency.symbol}
+            </Text>
+          </View>
+          <View style={styles.textContainer}>
+            <View style={styles.codeRow}>
+              <Text style={[
+                styles.codeText,
+                isLight && { color: '#0F172A' },
+                isSelected && { color: isLight ? '#4F46E5' : '#818CF8' }
+              ]}>
+                {code}
+              </Text>
+              {isSelected && (
+                <View style={styles.currentBadge}>
+                  <Text style={styles.currentBadgeText}>{t('Current') || 'Current'}</Text>
+                </View>
+              )}
+            </View>
+            <Text 
+              style={[styles.nameText, isLight && { color: '#64748B' }]}
+              numberOfLines={1}
+            >
+              {localizedName}
+            </Text>
+          </View>
+        </View>
+
+        {isSelected ? (
+          <Ionicons name="checkmark-circle" size={wp('6%')} color="#4F46E5" />
+        ) : (
+          <Ionicons name="chevron-forward" size={wp('4.5%')} color={isLight ? '#CBD5E1' : '#475569'} />
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <Modal
       visible={visible}
       transparent={true}
-      animationType="slide"
+      animationType="fade"
+      onRequestClose={onClose}
     >
-      <View style={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>{t('Select Default Currency')}</Text>
-          
-          <View style={styles.searchContainer}>
-            <MaterialIcons 
-              name="search" 
-              size={wp('5%')} 
-              color={COLORS.text.secondary} 
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder={t('Search currencies...')}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholderTextColor={COLORS.text.secondary}
-            />
+      <View style={[styles.backdrop, isLight && styles.backdropLight]}>
+        <View style={[styles.modalCard, isLight && styles.modalCardLight]}>
+          {/* Header Row */}
+          <View style={styles.headerRow}>
+            <View style={styles.headerLeft}>
+              <View style={[styles.iconBox, isLight && styles.iconBoxLight]}>
+                <Ionicons name="wallet-outline" size={wp('5.5%')} color="#4F46E5" />
+              </View>
+              <Text style={[styles.modalTitle, isLight && { color: '#0F172A' }]}>
+                {t('Select Default Currency') || 'Select Default Currency'}
+              </Text>
+            </View>
+            <TouchableOpacity 
+              onPress={onClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={[styles.closeIconBtn, isLight && styles.closeIconBtnLight]}
+            >
+              <Ionicons name="close" size={wp('5%')} color={isLight ? '#64748B' : '#94A3B8'} />
+            </TouchableOpacity>
           </View>
 
+          {/* Search Input */}
+          <View style={[styles.searchBox, isLight && styles.searchBoxLight]}>
+            <Ionicons name="search" size={wp('4.8%')} color={isLight ? '#64748B' : '#94A3B8'} />
+            <TextInput
+              style={[styles.searchInput, isLight && { color: '#0F172A' }]}
+              placeholder={t('Search currencies...') || 'Search currencies...'}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={wp('4.5%')} color={isLight ? '#94A3B8' : '#64748B'} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Currencies List */}
           {loading ? (
-            <ActivityIndicator size="small" color={COLORS.background} style={styles.loader} />
+            <View style={styles.loadingBox}>
+              <ActivityIndicator size="large" color="#4F46E5" />
+            </View>
           ) : (
             <FlatList
               data={filteredCurrencies}
@@ -251,18 +214,22 @@ const allCurrencies = {
               keyExtractor={([code]) => code}
               style={styles.currencyList}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             />
           )}
 
-          <Text style={styles.note}>
-            {t('Note: Exchange rates are updated daily')}
+          {/* Footer Note */}
+          <Text style={[styles.footerNote, isLight && { color: '#64748B' }]}>
+            {t('Note: Exchange rates are updated daily') || 'Note: Exchange rates are updated daily'}
           </Text>
 
+          {/* Done Button */}
           <TouchableOpacity
-            style={styles.closeButton}
+            style={styles.doneBtn}
             onPress={onClose}
+            activeOpacity={0.8}
           >
-            <Text style={styles.closeButtonText}>{t('Close')}</Text>
+            <Text style={styles.doneBtnText}>{t('Done') || 'Done'}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -270,102 +237,208 @@ const allCurrencies = {
   );
 };
 
+export default CurrencySelector;
+
 const styles = StyleSheet.create({
-  modalContainer: {
+  backdrop: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)', // Darker background for better contrast
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: wp('4.5%'),
   },
-  modalContent: {
-    backgroundColor: '#ffffff',
-    padding: wp('6%'), // Increased padding for a more spacious feel
-    borderRadius: wp('4%'),
-    width: wp('85%'),
-    maxHeight: hp('80%'),
-    shadowColor: '#000', // Added shadow for depth
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+  backdropLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
   },
-  modalTitle: {
-    fontSize: wp('6%'),
-    fontWeight: 'bold',
-    // marginBottom: hp('2%'),
-    textAlign: 'center',
-    color: COLORS.text.primary,
+  modalCard: {
+    width: '100%',
+    maxHeight: hp('78%'),
+    backgroundColor: '#1C1B26',
+    borderRadius: wp('4.5%'),
+    padding: wp('5%'),
+    borderWidth: 1,
+    borderColor: '#2E2D3B',
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
   },
-  searchContainer: {
+  modalCardLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: hp('1.8%'),
+  },
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e0e0e0', // Lighter background for search input
-    borderRadius: wp('2%'),
-    marginBottom: hp('2%'),
-    paddingHorizontal: wp('4%'),
+    flex: 1,
   },
-  searchIcon: {
-    marginRight: wp('2%'),
+  iconBox: {
+    width: wp('9%'),
+    height: wp('9%'),
+    borderRadius: wp('2.5%'),
+    backgroundColor: 'rgba(79, 70, 229, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: wp('3%'),
+  },
+  iconBoxLight: {
+    backgroundColor: '#EEF2FF',
+  },
+  modalTitle: {
+    fontSize: wp('4.8%'),
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  closeIconBtn: {
+    width: wp('8%'),
+    height: wp('8%'),
+    borderRadius: wp('4%'),
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeIconBtnLight: {
+    backgroundColor: '#F1F5F9',
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('1%'),
+    marginBottom: hp('1.5%'),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  searchBoxLight: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
   },
   searchInput: {
     flex: 1,
-    paddingVertical: hp('1.5%'),
-    fontSize: wp('4.5%'), // Slightly larger font size
-    color: COLORS.background,
+    fontSize: wp('3.8%'),
+    color: '#FFFFFF',
+    marginHorizontal: wp('2%'),
+    padding: 0,
   },
   currencyList: {
-    maxHeight: hp('45%'),
+    maxHeight: hp('44%'),
   },
-  currencyOption: {
-    padding: hp('2%'), // Increased padding for better touch targets
-    borderRadius: wp('2%'),
-    marginVertical: hp('0.5%'),
-    backgroundColor: '#f9f9f9', // Slightly different background color
+  currencyCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: wp('3.2%'),
+    borderRadius: wp('3%'),
+    marginVertical: hp('0.4%'),
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  selectedCurrency: {
-    backgroundColor: COLORS.primary,
+  currencyCardLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
   },
-  currencyContent: {
-    alignItems: 'flex-start',
+  selectedCardDark: {
+    backgroundColor: 'rgba(79, 70, 229, 0.16)',
+    borderColor: '#6366F1',
   },
-  currencyText: {
-    fontSize: wp('4.5%'), // Slightly larger font size
-    color: COLORS.text.primary,
-    marginBottom: hp('0.3%'),
+  selectedCardLight: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
   },
-  currencySubtext: {
-    fontSize: wp('4%'), // Slightly larger font size
-    color: COLORS.text.secondary,
+  cardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
-  selectedText: {
-    color: 'white',
+  symbolBadge: {
+    width: wp('11%'),
+    height: wp('11%'),
+    borderRadius: wp('2.8%'),
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: wp('3%'),
   },
-  unselectedText: {
-    color: COLORS.background, // Changed to Color.background when not selected
+  symbolBadgeLight: {
+    backgroundColor: '#F1F5F9',
   },
-  note: {
-    marginTop: hp('2%'),
-    color: COLORS.text.secondary,
+  symbolBadgeSelected: {
+    backgroundColor: '#4F46E5',
+  },
+  symbolBadgeText: {
+    fontSize: wp('4.4%'),
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  symbolBadgeTextLight: {
+    color: '#0F172A',
+  },
+  textContainer: {
+    flex: 1,
+  },
+  codeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+  },
+  codeText: {
+    fontSize: wp('4%'),
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  currentBadge: {
+    backgroundColor: 'rgba(79, 70, 229, 0.2)',
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.2%'),
+    borderRadius: wp('1.5%'),
+  },
+  currentBadgeText: {
+    fontSize: wp('2.6%'),
+    fontWeight: '600',
+    color: '#818CF8',
+  },
+  nameText: {
+    fontSize: wp('3.2%'),
+    color: '#94A3B8',
+    marginTop: hp('0.2%'),
+  },
+  loadingBox: {
+    paddingVertical: hp('6%'),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerNote: {
+    marginTop: hp('1.2%'),
+    marginBottom: hp('1.2%'),
+    fontSize: wp('3%'),
+    color: '#94A3B8',
     textAlign: 'center',
-    fontSize: wp('3.5%'),
   },
-  closeButton: {
-    marginTop: hp('2%'),
-    padding: hp('1.5%'),
-    backgroundColor: COLORS.primary, // Changed to primary color for visibility
-    borderRadius: wp('2%'),
+  doneBtn: {
+    backgroundColor: '#4F46E5',
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  closeButtonText: {
-    color: 'white',
-    textAlign: 'center',
-    fontSize: wp('4.5%'), // Slightly larger font size
-  },
-  loader: {
-    marginVertical: hp('4%'),
+  doneBtnText: {
+    color: '#FFFFFF',
+    fontSize: wp('4%'),
+    fontWeight: '700',
   },
 });
-
-export default CurrencySelector;
