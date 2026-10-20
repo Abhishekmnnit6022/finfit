@@ -105,7 +105,7 @@ export async function launchUpiApp(uri, options = {}) {
         await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
           data: uri,
           packageName,
-          flags: IntentLauncher.FLAG_ACTIVITY_NEW_TASK || 0x10000000,
+          flags: 0x10000000,
         });
         return true;
       } catch (err) {

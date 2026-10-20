@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -16,8 +16,10 @@ import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from "react-native-responsive-screen";
+import { useTranslation } from "react-i18next";
 
 const QRScannerModal = ({ visible, onClose, onScanSuccess }) => {
+  const { t } = useTranslation();
   const [hasPermission, setHasPermission] = useState(null);
   const [scanned, setScanned] = useState(false);
 
@@ -49,7 +51,7 @@ const QRScannerModal = ({ visible, onClose, onScanSuccess }) => {
     return (
       <Modal visible={visible} transparent animationType="slide">
         <View style={styles.modalContainer}>
-          <Text style={styles.permissionText}>Requesting camera permission...</Text>
+          <Text style={styles.permissionText}>{t('Requesting camera permission...') || 'Requesting camera permission...'}</Text>
         </View>
       </Modal>
     );
@@ -59,9 +61,9 @@ const QRScannerModal = ({ visible, onClose, onScanSuccess }) => {
     return (
       <Modal visible={visible} transparent animationType="slide">
         <View style={styles.modalContainer}>
-          <Text style={styles.permissionText}>No access to camera</Text>
+          <Text style={styles.permissionText}>{t('No access to camera') || 'No access to camera'}</Text>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Text style={styles.closeButtonText}>Close</Text>
+            <Text style={styles.closeButtonText}>{t('close') || t('Close') || 'Close'}</Text>
           </TouchableOpacity>
         </View>
       </Modal>
@@ -84,7 +86,7 @@ const QRScannerModal = ({ visible, onClose, onScanSuccess }) => {
           <View style={styles.overlay}>
             <View style={styles.scanArea} />
             <Text style={styles.instructions}>
-              Position the QR code within the frame to scan
+              {t('Position the QR code within the frame to scan') || 'Position the QR code within the frame to scan'}
             </Text>
           </View>
         </BarCodeScanner>
@@ -94,7 +96,7 @@ const QRScannerModal = ({ visible, onClose, onScanSuccess }) => {
             style={styles.rescanButton} 
             onPress={() => setScanned(false)}
           >
-            <Text style={styles.rescanButtonText}>Tap to Scan Again</Text>
+            <Text style={styles.rescanButtonText}>{t('Tap to Scan Again') || 'Tap to Scan Again'}</Text>
           </TouchableOpacity>
         )}
       </SafeAreaView>

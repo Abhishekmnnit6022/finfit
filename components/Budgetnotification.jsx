@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState } from 'react';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import i18next from '../utils/language/i18config';
 
 const NOTIFICATION_STORAGE_KEY = 'BUDGET_NOTIFICATION_DATA';
 const NOTIFICATION_INTERVAL = 3 * 60 * 60 * 1000; // 3 hours for scheduled background checks
@@ -9,6 +10,39 @@ const MAX_NOTIFICATIONS_PER_DAY = 3; // Allow up to 3 periodic reminders per cat
 
 // In-memory locks to prevent concurrent duplicate notification dispatches
 const recentNotificationLocks = new Map();
+
+// Helper to produce localized notification texts
+const getLocalizedNotification = (categoryName, percentage, spent, limit, isCritical = false, isAlert = false) => {
+  const t = (k, fb) => {
+    try {
+      const val = i18next.t(k);
+      return val && val !== k ? val : (fb || k);
+    } catch (e) {
+      return fb || k;
+    }
+  };
+
+  let title = t('🚨 Budget Exceeded!', '🚨 Budget Exceeded!');
+  if (isCritical) {
+    title = t('⚠️ Budget Critical!', '⚠️ Budget Critical!');
+  } else if (isAlert) {
+    title = t('⚠️ Budget Alert', '⚠️ Budget Alert');
+  }
+
+  const localizedCat = t(categoryName, categoryName);
+  const rawBody = t(
+    'budget_exceeded_notification_body',
+    'Your {{category}} budget is at {{percentage}}% ({{spent}} / {{limit}}). Consider reviewing your spending.'
+  );
+
+  const body = rawBody
+    .replace('{{category}}', localizedCat)
+    .replace('{{percentage}}', percentage.toFixed(0))
+    .replace('{{spent}}', spent.toFixed(2))
+    .replace('{{limit}}', limit.toFixed(2));
+
+  return { title, body };
+};
 
 // Set the notification handler
 Notifications.setNotificationHandler({
@@ -37,9 +71,10 @@ export const notifyBudgetExceededForCategory = async (category, spent, limit) =>
   recentNotificationLocks.set(category, now);
 
   try {
+    const { title, body } = getLocalizedNotification(category, percentage, spent, limit);
     const notificationContent = {
-      title: '🚨 Budget Exceeded!',
-      body: `Your ${category} budget is at ${percentage.toFixed(0)}% (${spent.toFixed(2)} / ${limit.toFixed(2)}). Consider reviewing your spending.`,
+      title,
+      body,
       sound: 'default',
       priority: 'high',
       badge: 1,
@@ -199,9 +234,20 @@ export const useBudgetNotifications = () => {
       if (percentage >= 75 && (hasWaitedEnough || categoryData.count === 0 || (percentage >= 100 && percentageIncreased)) && hasNotExceededDailyLimit) {
         recentNotificationLocks.set(budget.category, now);
 
+        const isCritical = percentage < 100 && percentage >= 90;
+        const isAlert = percentage < 90;
+        const { title, body } = getLocalizedNotification(
+          budget.title || budget.category,
+          percentage,
+          spent,
+          budget.limit,
+          isCritical,
+          isAlert
+        );
+
         const notificationContent = {
-          title: percentage >= 100 ? '🚨 Budget Exceeded!' : percentage >= 90 ? '⚠️ Budget Critical!' : '⚠️ Budget Alert',
-          body: `Your ${budget.title} budget is at ${percentage.toFixed(0)}% (${spent.toFixed(2)} / ${budget.limit.toFixed(2)}). Consider reviewing your spending.`,
+          title,
+          body,
           sound: 'default',
           priority: 'high',
           badge: 1,
