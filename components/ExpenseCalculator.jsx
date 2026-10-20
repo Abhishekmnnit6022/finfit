@@ -1,6 +1,6 @@
 // ExpenseCalculator.jsx
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -15,7 +15,8 @@ import {
   Linking,
   Platform,
   TouchableWithoutFeedback,
-  Keyboard
+  Keyboard,
+  AppState
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
@@ -28,6 +29,8 @@ import { useNavigation } from '@react-navigation/native';
 import * as IntentLauncher from 'expo-intent-launcher';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTranslation } from 'react-i18next';
+import QRScannerModal from './QRCodeScanner';
+import { parseUpiUri, buildLaunchUri, launchUpiApp } from '../utils/upiService';
 
 // UPI Apps Data
 const UPI_APPS = [
@@ -99,8 +102,6 @@ const PAYMENT_METHODS = [
   { id: 'direct', name: 'Direct Save', icon: 'checkmark-circle-outline', desc: 'Already paid, just record expense', color: '#6366F1' },
 ];
 
-const MERCHANT_UPI = "blurofficialchannel@okaxis"; // Replace with your UPI ID
-
 const MAX_DIGITS = 9;
 const DECIMAL_PLACES = 2;
 
@@ -123,6 +124,11 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
   const [availableUPIApps, setAvailableUPIApps] = useState([]);
   const [paymentPending, setPaymentPending] = useState(false);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
+  // Option 1 (scan merchant QR -> prefill -> forward -> confirm) state
+  const [showMerchantScanner, setShowMerchantScanner] = useState(false);
+  const [scannedMerchant, setScannedMerchant] = useState(null);
+  const awaitingPaymentReturn = useRef(false);
+  const confirmRef = useRef(null);
   const [amount, setAmount] = useState('0');
   const [isProcessing, setIsProcessing] = useState(false);
   const { onSave, state, convertAmount } = useGlobalContext();
@@ -268,7 +274,10 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
     } else if (paymentMethod === 'upi') {
       if (!account) setAccount('Bank Account');
       checkInstalledApps();
-      setShowUPIAppsModal(true);
+      // Option 1: scan the merchant's UPI QR in-app, parse it, then forward the
+      // scanned payload verbatim to a UPI app and confirm the result on return.
+      setScannedMerchant(null);
+      setShowMerchantScanner(true);
     } else {
       setTimeout(() => {
         saveTransaction();
@@ -276,49 +285,90 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
     }
   };
 
+  // Called by QRScannerModal when a QR is decoded. Parses the merchant UPI QR,
+  // prefills amount/note, then shows the app picker. Handles non-UPI QRs itself
+  // (so the generic scanner's "import" error path never fires).
+  const handleMerchantScanned = async (data) => {
+    const parsed = parseUpiUri(data);
+
+    if (!parsed.isValid) {
+      setShowMerchantScanner(false);
+      Alert.alert(
+        t('notUpiQrTitle') || 'Not a UPI QR',
+        t('notUpiQrMessage') ||
+          'This does not look like a UPI payment QR code. Please scan a merchant UPI QR.'
+      );
+      return;
+    }
+
+    setScannedMerchant(parsed);
+
+    // If the QR carries a fixed amount (dynamic QR), it is authoritative — use it
+    // so the recorded expense matches what is actually paid.
+    if (parsed.am) {
+      const num = parseFloat(String(parsed.am).replace(/,/g, ''));
+      if (!isNaN(num) && num > 0) setAmount(num.toFixed(DECIMAL_PLACES));
+    }
+    // Prefill the note with the merchant name when the user hasn't typed one.
+    if (parsed.pn && !note) setNote(parsed.pn);
+
+    setShowMerchantScanner(false);
+    // Let the scanner modal finish dismissing before showing the app picker.
+    setTimeout(() => setShowUPIAppsModal(true), 300);
+  };
+
   const handleUPIApp = async (app) => {
     try {
       setShowUPIAppsModal(false);
-      setPaymentPending(true);
-      
-      // Clean upi://pay intent without forcing amount or merchant IDs, letting the user complete payment naturally
-      const upiUrl = 'upi://pay';
 
-      if (Platform.OS === 'android') {
-        if (app.package) {
-          try {
-            await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-              data: upiUrl,
-              packageName: app.package,
-              flags: (IntentLauncher.FLAG_ACTIVITY_NEW_TASK || 0x10000000),
-            });
-          } catch (launcherErr) {
-            console.warn('Direct package open failed, falling back to intent chooser:', launcherErr.message);
-            await Linking.openURL(upiUrl);
-          }
-        } else {
-          await Linking.openURL(upiUrl);
-        }
-      } else {
-        try {
-          const appUrl = `${app.uriSchema}://`;
-          const canOpen = await Linking.canOpenURL(appUrl);
-          if (canOpen) {
-            await Linking.openURL(appUrl);
-          } else {
-            await Linking.openURL(upiUrl);
-          }
-        } catch {
-          await Linking.openURL(upiUrl);
+      if (!scannedMerchant || !scannedMerchant.isValid) {
+        Alert.alert(
+          t('errorTitle') || 'Error',
+          t('noMerchantScanned') ||
+            'No merchant details found. Please scan a UPI QR code first.'
+        );
+        return;
+      }
+
+      // QR amount wins; otherwise use the amount typed into the calculator.
+      const fallbackAmount = scannedMerchant.am ? null : amount;
+      if (!scannedMerchant.am) {
+        const num = parseFloat(String(amount).replace(/,/g, ''));
+        if (isNaN(num) || num <= 0) {
+          Alert.alert(
+            t('invalidAmountTitle') || 'Enter an amount',
+            t('enterAmountBeforePay') ||
+              'This QR has no fixed amount. Please enter an amount before paying.'
+          );
+          return;
         }
       }
 
+      const launchUri = buildLaunchUri(scannedMerchant, fallbackAmount, note);
+
+      setPaymentPending(true);
+      awaitingPaymentReturn.current = true;
+      const launched = await launchUpiApp(launchUri, { packageName: app?.package || null });
       setPaymentPending(false);
-      saveTransaction();
+
+      if (!launched) {
+        awaitingPaymentReturn.current = false;
+        Alert.alert(
+          t('errorTitle') || 'Error',
+          t('couldNotOpenUpi') ||
+            'Could not open a UPI app. Please make sure one is installed.'
+        );
+      }
+      // Intentionally NOT saving here. We wait for the user to return from the
+      // UPI app (detected via AppState) and confirm whether it went through.
     } catch (error) {
       console.warn('Error opening UPI app:', error?.message || error);
       setPaymentPending(false);
-      saveTransaction();
+      awaitingPaymentReturn.current = false;
+      Alert.alert(
+        t('errorTitle') || 'Error',
+        t('couldNotOpenUpi') || 'Could not open the selected UPI app.'
+      );
     }
   };
 
@@ -487,6 +537,59 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
     initialData, isEditMode, isFromOCR, propOnSave, onSave, onClose, validateAmount, originalCurrency,
     state?.defaultCurrency, convertAmount, originalAmount, currency, t
   ]);
+
+  // Shown after the user returns from the UPI app. We cannot reliably read a
+  // success/failure status from UPI apps, so we ask the user directly and only
+  // record the expense if they confirm the payment went through.
+  const promptPaymentConfirmation = () => {
+    const who = scannedMerchant?.pn || scannedMerchant?.pa || '';
+    Alert.alert(
+      t('paymentCompleteTitle') || 'Payment complete?',
+      (t('paymentCompleteMessage') ||
+        'Did the payment go through successfully in your UPI app?') +
+        (who ? `\n\n${who}` : ''),
+      [
+        {
+          text: t('paymentFailedBtn') || 'No, it failed',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              t('notRecordedTitle') || 'Not recorded',
+              t('notRecordedMessage') ||
+                'The expense was not saved. You can try again or pick a different payment method.'
+            );
+          },
+        },
+        {
+          text: t('editDetailsBtn') || 'Edit details',
+          style: 'cancel',
+        },
+        {
+          text: t('yesPaidBtn') || 'Yes, paid',
+          onPress: () => {
+            saveTransaction();
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+  // Keep the latest handler in a ref so the AppState listener (subscribed once)
+  // always calls the current closure without re-subscribing every render.
+  confirmRef.current = promptPaymentConfirmation;
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && awaitingPaymentReturn.current) {
+        awaitingPaymentReturn.current = false;
+        // Let the UI settle after returning from the external UPI app.
+        setTimeout(() => {
+          if (confirmRef.current) confirmRef.current();
+        }, 400);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   const handleSave = () => {
     if (type === 'TRANSFER') {
@@ -657,7 +760,9 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
           <View style={{ flex: 1 }}>
             <Text style={styles.modalTitle}>{t('selectUPIApp') || 'Select UPI App'}</Text>
             <Text style={{ fontSize: wp('3.2%'), color: COLORS.text.secondary, marginTop: 2 }}>
-              Choose an app to complete payment
+              {scannedMerchant?.pn || scannedMerchant?.pa
+                ? `Paying ${scannedMerchant.pn || scannedMerchant.pa}`
+                : 'Choose an app to complete payment'}
             </Text>
           </View>
           <TouchableOpacity 
@@ -1031,6 +1136,13 @@ const ExpenseCalculator = ({ onClose, initialData, onSave: propOnSave }) => {
 
         {/* UPI Apps Selection Modal */}
         {renderUPIAppsModal()}
+
+        {/* In-app merchant QR scanner (Option 1 entry point) */}
+        <QRScannerModal
+          visible={showMerchantScanner}
+          onClose={() => setShowMerchantScanner(false)}
+          onScanSuccess={handleMerchantScanned}
+        />
 
         {/* Loading Overlay for Payment Processing */}
         {paymentPending && (

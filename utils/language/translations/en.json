@@ -282,5 +282,17 @@
   "Spending by Category": "Spending by Category",
   "Budget Progress": "Budget Progress",
   "Slide to start": "Slide to start",
-  "Budget_Utilized": "Budget_Utilized"
+  "Budget_Utilized": "Budget_Utilized",
+  "notUpiQrTitle": "Not a UPI QR",
+  "notUpiQrMessage": "This does not look like a UPI payment QR code. Please scan a merchant UPI QR.",
+  "noMerchantScanned": "No merchant details found. Please scan a UPI QR code first.",
+  "enterAmountBeforePay": "This QR has no fixed amount. Please enter an amount before paying.",
+  "couldNotOpenUpi": "Could not open a UPI app. Please make sure one is installed.",
+  "paymentCompleteTitle": "Payment complete?",
+  "paymentCompleteMessage": "Did the payment go through successfully in your UPI app?",
+  "paymentFailedBtn": "No, it failed",
+  "editDetailsBtn": "Edit details",
+  "yesPaidBtn": "Yes, paid",
+  "notRecordedTitle": "Not recorded",
+  "notRecordedMessage": "The expense was not saved. You can try again or pick a different payment method."
 }

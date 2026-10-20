@@ -24,6 +24,9 @@ const QRScannerModal = ({ visible, onClose, onScanSuccess }) => {
   React.useEffect(() => {
     (async () => {
       if (visible) {
+        // Reset the scanned lock each time the scanner is opened so it can be
+        // reused for multiple scans (e.g. repeated UPI payments).
+        setScanned(false);
         const { status } = await Camera.requestCameraPermissionsAsync();
         setHasPermission(status === 'granted');
       }
