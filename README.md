@@ -32,16 +32,15 @@ FinFit is a modern, privacy-focused personal finance tracking and budgeting appl
 
 - **Local-First Architecture and Privacy**: All financial records, accounts, and budgets are stored securely on-device using SQLite and AsyncStorage, ensuring complete user privacy, zero mandatory external server dependencies, and full offline usability.
 - **AI Financial Advisor**: Contextual spending assessments and conversational financial mentorship powered by Google Gemini and xAI Grok, backed by an autonomous offline heuristic advisory engine.
-- **OCR Receipt Scanning and Auto-Categorization**: Automated expense entry using optical character recognition to extract vendor names, amounts, and dates with smart category suggestions.
+- **OCR Receipt Scanning and Auto-Categorization**: Automated expense entry using optical character recognition to extract vendor names, amounts, and dates with smart category suggestions from the bill receipts.
 - **Instant Merchant UPI Payments**: Integrated camera scanner for merchant UPI QR codes with automatic parameter extraction, direct forwarding to installed UPI apps, and prompt post-payment logging.
-- **Offline-First Backup and Encrypted QR Sync**: Complete offline data protection with encrypted QR-based device-to-device migration and secure password-protected backups without relying on external servers.
+- **Offline Backup and QR based data Sync**: Complete offline data protection with encrypted QR-based device-to-device migration and secure password-protected backups without relying on external servers.
 - **Comprehensive Data Export**: Generates branded PDF reports, CSV spreadsheets, and JSON files for auditing, analysis, and personal records.
 - **Proactive Budget Alerts**: Real-time category budget utilization with automated notifications at 75%, 90%, and 100% threshold crossings with smart cooldowns.
 - **Native Device Security**: Biometric and device PIN authentication (Fingerprint, Face ID, PIN) safeguarding app launch and background resume.
-- **Multi-Currency Support**: Real-time conversion across 35 major world currencies with offline fallback rates.
+- **Multi-Currency Support**: Real-time conversion across major world currencies.
 - **Multilingual Support**: Fully localized across 6 languages: English, Hindi, Marathi, Kannada, Tamil, and Urdu.
-- **User-Friendly Dual Themes**: Sleek default dark mode with an instant drawer switch toggle, clean card borders, and zero white-screen leaks.
-
+- **User-Friendly Dual Themes**: Sleek default dark mode with an instant drawer switch toggle.
 ---
 
 ## Technical Stack
