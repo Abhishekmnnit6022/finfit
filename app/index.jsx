@@ -10,25 +10,22 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import * as Haptics from 'expo-haptics';
 import { useUserPreferences } from '../hooks/useUserPreferences';
 import { COLORS } from '../constants/theme';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
 import { useGlobalContext } from '../components/globalProvider';
+
 const BUTTON_WIDTH = wp(15);
 const CONTAINER_WIDTH = wp(85);
 const THRESHOLD = CONTAINER_WIDTH - BUTTON_WIDTH - wp(2.5);
 
-
-
-const SlideButton = ({ onSlideComplete }) => {
+const SlideButton = ({ onSlideComplete, isLight, buttonText }) => {
   const pan = useRef(new Animated.ValueXY()).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -73,13 +70,13 @@ const SlideButton = ({ onSlideComplete }) => {
     outputRange: [1, 0],
   });
 
-  
-
   return (
-    <View style={styles.sliderContainer}>
+    <View style={[styles.sliderContainer, isLight && { backgroundColor: '#E2E8F0' }]}>
       <View style={styles.sliderTrack}>
         <Animated.View style={[styles.slideText, { opacity }]}>
-          <Text style={styles.slideTextContent}>Slide to start</Text>
+          <Text style={[styles.slideTextContent, isLight && { color: '#0F172A' }]}>
+            {buttonText || 'Slide to start'}
+          </Text>
         </Animated.View>
       </View>
       <Animated.View
@@ -96,64 +93,87 @@ const SlideButton = ({ onSlideComplete }) => {
 
 const WelcomeScreen = () => {
   const router = useRouter();
-  const { markWelcomeAsSeen, isLoading } = useUserPreferences();
+  const [isOnboarded, setIsOnboarded] = React.useState(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
 
-  const { state, dispatch, changeLanguage } = useGlobalContext();
-  const { t ,i18n} = useTranslation();
-
-  const handleLanguageSelect = (language) => {
-    console.log("Current language in state:", state.language);
-    changeLanguage(language);
-    setIsModalVisible(false); 
-    console.log("Language changed to", language);
-};
-
-useEffect(() => {
-    
-  if (state.language && i18n.language !== state.language) {
-    i18n.changeLanguage(state.language);
-  }
-  else{
-    i18n.changeLanguage(state.language);
-  }
-}, [state.language]);
+  const { state } = useGlobalContext();
+  const { t, i18n } = useTranslation();
+  const isLight = state?.theme === 'light';
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 1000,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    let isMounted = true;
+    const checkWelcomeStatus = async () => {
+      try {
+        const seenWelcome = await AsyncStorage.getItem('hasSeenWelcome');
+        const launched = await AsyncStorage.getItem('hasLaunched');
+        const onboardingDone = await AsyncStorage.getItem('FINFIT_ONBOARDING_DONE');
+        if (
+          seenWelcome === 'true' ||
+          launched === 'true' ||
+          onboardingDone === 'true' ||
+          seenWelcome === '"true"'
+        ) {
+          if (isMounted) setIsOnboarded(true);
+          return;
+        }
+        if (isMounted) setIsOnboarded(false);
+      } catch (e) {
+        if (isMounted) setIsOnboarded(true);
+      }
+    };
+    checkWelcomeStatus();
+    return () => { isMounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (state?.language && i18n.language !== state.language) {
+      i18n.changeLanguage(state.language);
+    }
+  }, [state?.language]);
+
+  useEffect(() => {
+    if (isOnboarded === false) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [isOnboarded]);
 
   const handleSlideComplete = async () => {
     try {
-      await markWelcomeAsSeen();
+      await AsyncStorage.setItem('FINFIT_ONBOARDING_DONE', 'true');
+      await AsyncStorage.setItem('hasSeenWelcome', 'true');
+      await AsyncStorage.setItem('hasLaunched', 'true');
+      setIsOnboarded(true);
       router.replace('/(drawer)');
     } catch (error) {
       console.error('Error marking welcome as seen:', error);
+      setIsOnboarded(true);
+      router.replace('/(drawer)');
     }
-
-   
   };
 
-  if (isLoading) {
-    return null;
+  if (isOnboarded === true) {
+    return <Redirect href="/(drawer)" />;
   }
 
+  if (isOnboarded === null) {
+    return <View style={{ flex: 1, backgroundColor: isLight ? '#FFFFFF' : COLORS.background }} />;
+  }
 
   return (
-    <SafeAreaView style={styles.mainContainer}>
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+    <SafeAreaView style={[styles.mainContainer, isLight && { backgroundColor: '#FFFFFF' }]}>
+      <StatusBar translucent backgroundColor="transparent" barStyle={isLight ? 'dark-content' : 'light-content'} />
       <View style={styles.container}>
         <Animated.View 
           style={[
@@ -164,7 +184,10 @@ useEffect(() => {
             }
           ]}
         >
-          <Image source={require('../assets/images/logo.png')} style={{ width: wp(72), height: wp(30), resizeMode:"contain"}} />
+          <Image 
+            source={require('../assets/images/logo.png')} 
+            style={{ width: wp(72), height: wp(30), resizeMode: 'contain' }} 
+          />
         </Animated.View>
 
         <Animated.View 
@@ -177,27 +200,42 @@ useEffect(() => {
           ]}
         >
           <View style={styles.featureItem}>
-            <Text style={styles.featureTitle}>{t('📊Real-Time Tracking')}</Text>
-            <Text style={styles.featureDescription}>{t('Monitor your finances as they happen')}</Text>
+            <Text style={[styles.featureTitle, isLight && { color: '#0F172A' }]}>
+              {t('Real-Time Tracking') || t('📊Real-Time Tracking') || '📊 Real-Time Tracking'}
+            </Text>
+            <Text style={[styles.featureDescription, isLight && { color: '#64748B' }]}>
+              {t('Monitor your finances as they happen') || 'Monitor your finances as they happen'}
+            </Text>
           </View>
           <View style={styles.featureItem}>
-            <Text style={styles.featureTitle}>{t('🎯Smart Budgeting')}</Text>
-            <Text style={styles.featureDescription}>{t('AI-powered budget recommendations')}</Text>
+            <Text style={[styles.featureTitle, isLight && { color: '#0F172A' }]}>
+              {t('Smart Budgeting') || t('🎯Smart Budgeting') || '🎯 Smart Budgeting'}
+            </Text>
+            <Text style={[styles.featureDescription, isLight && { color: '#64748B' }]}>
+              {t('AI-powered budget recommendations') || 'AI-powered budget recommendations'}
+            </Text>
           </View>
           <View style={styles.featureItem}>
-            <Text style={styles.featureTitle}>{t('📈Detailed Analytics')}</Text>
-            <Text style={styles.featureDescription}>{t('Understand your spending patterns')}</Text>
+            <Text style={[styles.featureTitle, isLight && { color: '#0F172A' }]}>
+              {t('Detailed Analytics') || t('📈Detailed Analytics') || '📈 Detailed Analytics'}
+            </Text>
+            <Text style={[styles.featureDescription, isLight && { color: '#64748B' }]}>
+              {t('Understand your spending patterns') || 'Understand your spending patterns'}
+            </Text>
           </View>
         </Animated.View>
 
         <View style={styles.buttonContainer}>
-          <SlideButton onSlideComplete={(handleSlideComplete)} buttonText={t('slideToStart')} />
+          <SlideButton
+            onSlideComplete={handleSlideComplete}
+            isLight={isLight}
+            buttonText={t('slideToStart') || 'Slide to start'}
+          />
         </View>
       </View>
     </SafeAreaView>
   );
 };
-  
 
 const styles = StyleSheet.create({
   mainContainer: {
@@ -214,31 +252,6 @@ const styles = StyleSheet.create({
   logoContainer: {
     alignItems: 'center',
     marginTop: hp(4),
-  },
-  logoCircle: {
-    width: wp(20),
-    height: wp(20),
-    borderRadius: wp(10),
-    backgroundColor: COLORS.whiteBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: hp(2),
-  },
-  logoText: {
-    fontSize: wp(10),
-    fontWeight: 'bold',
-    color: COLORS.primary,
-  },
-  appName: {
-    fontSize: wp(9),
-    fontWeight: 'bold',
-    color: COLORS.text.primary,
-    marginBottom: hp(1),
-  },
-  tagline: {
-    fontSize: wp(4.5),
-    color: COLORS.text.secondary,
-    opacity: 0.9,
   },
   featuresContainer: {
     width: '100%',
