@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/Abhishekmnnit6022/finfit/releases/latest/download/FinFit.apk">
-    <img src="https://img.shields.io/badge/Download-FinFit%20APK%20(v1.0.0)-2563EB?style=for-the-badge&logo=android&logoColor=white" alt="Download FinFit APK" />
+    <img src="https://img.shields.io/badge/Download-FinFit%20APK%20(v1.1.0)-2563EB?style=for-the-badge&logo=android&logoColor=white" alt="Download FinFit APK" />
   </a>
 </p>
 
